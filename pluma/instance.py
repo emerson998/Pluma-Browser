@@ -70,6 +70,8 @@ def bind(server, window):
                 target.activateWindow()
                 c.disconnectFromServer()
             client.readyRead.connect(receive)
+            if client.bytesAvailable():
+                receive()
             def removed(c=client):
                 clients.discard(c)
                 c.deleteLater()

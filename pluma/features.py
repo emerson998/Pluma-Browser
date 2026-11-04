@@ -378,7 +378,12 @@ class Features:
                 tab = self.tabs.widget(i)
                 state = tab.view.page().lifecycleState().name if tab.view else 'Sem renderer'
                 states[state] += 1
-            root = psutil.Process()
+            try:
+                root = psutil.Process()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                label.setText('Métricas de processos indisponíveis neste ambiente.\n' +
+                              '\n'.join(f'{key}: {value}' for key, value in states.items()))
+                return
             rss = uss = cpu = 0
             current = [root] + root.children(recursive=True)
             for process in current:

@@ -83,6 +83,11 @@ jobs:
         run: |
           VERSION=$(find publish -name 'Pluma-*-Linux-x64.deb' -printf '%f' | sed 's/Pluma-//;s/-Linux-x64.deb//')
           TAG="v$VERSION"
+          HEAD=$(gh api "repos/$REPOSITORY/commits/main" --jq .sha)
+          if [ "$HEAD" != "$GITHUB_SHA" ]; then
+            echo "A newer commit exists; this build will not publish."
+            exit 0
+          fi
           if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG already exists; increase the package version to publish another."
           else

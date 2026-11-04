@@ -49,6 +49,10 @@ try:
     import shiboken6
     assert not shiboken6.isValid(profile), 'Private profile must die on window close'
     assert not window.child_windows, 'Closed private windows must be released'
+    QTimer.singleShot(100, lambda: QApplication.activeModalWidget().accept())
+    window.performance()
+    QTimer.singleShot(100, lambda: QApplication.activeModalWidget().accept())
+    window.about()
     window.close()
     print('PASS: lazy tabs, atomic session, preferences, bookmarks, idle AI and private teardown')
 finally:
