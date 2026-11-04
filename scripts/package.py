@@ -25,7 +25,7 @@ else:
     shutil.rmtree(deb, ignore_errors=True)
     (deb / 'DEBIAN').mkdir(parents=True)
     (deb / 'opt').mkdir(parents=True)
-    shutil.copytree(bundle, deb / 'opt/pluma')
+    shutil.copytree(bundle, deb / 'opt/pluma', symlinks=True)
     (deb / 'DEBIAN/control').write_text(
         f'Package: pluma-browser\nVersion: {__version__}\nSection: web\nPriority: optional\nArchitecture: amd64\n'
         'Maintainer: Emerson Oliveira\n'
@@ -40,3 +40,9 @@ files = [p for p in release.iterdir() if p.is_file() and p.name != 'SHA256SUMS.t
 (release / 'SHA256SUMS.txt').write_text('\n'.join(
     hashlib.file_digest(p.open('rb'), 'sha256').hexdigest() + '  ' + p.name for p in sorted(files)) + '\n')
 print('Packages:', [p.name for p in release.iterdir()])
+summary = os.environ.get('GITHUB_STEP_SUMMARY')
+if summary:
+    with open(summary, 'a', encoding='utf-8') as stream:
+        stream.write('### Package sizes\n\n| File | MiB |\n|---|---:|\n')
+        for path in sorted(release.iterdir()):
+            stream.write(f'| {path.name} | {path.stat().st_size / 1048576:.1f} |\n')
