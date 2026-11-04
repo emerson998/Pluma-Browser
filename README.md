@@ -1,59 +1,119 @@
-# Pluma Browser
+# Pluma Browser 0.2
 
 **Menos distração. Mais espaço para navegar.**
 
-Navegador desktop experimental para Windows e Linux, com motor **Chromium via Qt WebEngine**, interface nativa minimalista, bloqueio de anúncios por domínio e assistente de IA opcional.
+Navegador desktop para Windows x64 e Linux x64, com Chromium via Qt WebEngine, interface nativa e IA opcional por chave de API.
 
-> Versão 0.1.0: primeira base funcional. Não é uma distribuição do Google Chrome nem um fork completo do Chromium. Não há benchmark demonstrando menor RAM que Chrome. O motor Chromium continua sendo a maior parte do consumo e do tamanho do pacote.
+## Instalar
 
-## O que está implementado
+Baixe a versão do seu sistema em **[Releases](https://github.com/emerson998/Pluma-Browser/releases)**.
 
-- Interface escura com acentos verdes, barra de endereço/pesquisa e abas.
-- Nova aba nativa: não cria um renderer web até você navegar.
-- Congelamento após 60 segundos e descarte após 5 minutos em segundo plano, **somente quando o Chromium recomenda**. Áudio e abas marcadas “Manter ativa” são preservados.
-- Perfil compartilhado pelas abas, cache limitado a 64 MiB; sem feed, extensões ou modelo de IA local embutido.
-- Bloqueador nativo com lista inicial de 21 domínios de anúncios/rastreamento; inclui subdomínios e exceção por site.
-- Janela privada com perfil off-the-record independente.
-- Favoritos locais, downloads com escolha do destino, atalhos de teclado.
-- Painel IA criado sob demanda: API compatível com OpenAI, Anthropic ou servidor local compatível.
-- Endpoint e modelo editáveis. Presets são sugestões, sujeitos à disponibilidade na conta.
-- Chave somente em memória por padrão; armazenamento opcional pelo keyring do sistema.
-- Texto da página enviado somente com confirmação para cada pergunta, limitado a 24.000 caracteres.
-- Respostas exibidas como texto, sem executar HTML ou instruções da IA.
+| Sistema | Pacotes |
+|---|---|
+| Windows | Instalador por usuário e ZIP portátil |
+| Ubuntu 24.04 / compatíveis | Pacote .deb e arquivo portátil .tar.gz |
 
-## Executar a partir do código
+Extraia a pasta portátil inteira antes de executar. Não rode o navegador como root.
+Os pacotes Windows ainda não têm assinatura Authenticode: isso exige certificado do publicador.
+As releases produzidas pelo workflow incluem SHA256 e atestação de procedência do GitHub.
+Para verificar: **gh attestation verify ARQUIVO --repo emerson998/Pluma-Browser**.
+No Linux portátil, preserve a permissão de execução: **chmod +x Pluma/Pluma**.
 
-Requer Python 3.11+ (recomendado 3.12), Windows x64 ou Linux x64 com ambiente gráfico.
+O instalador registra o aplicativo como opção de navegador. Escolha Pluma nas configurações de aplicativos padrão do Windows. No Linux instalado: **xdg-settings set default-web-browser pluma.desktop**. URLs passadas pela linha de comando são abertas no navegador e reutilizam a instância do mesmo usuário.
 
-### Windows (PowerShell)
+## O que mudou
+
+| Área | Recursos |
+|---|---|
+| Economia | Equilibrado/Econômico; suspensão ajustável; abas fixadas e com áudio preservadas; painéis sob demanda |
+| Sessão | Gravação atômica; recuperação após reiniciar/falhar; restauração sem carregar todas as abas; reabrir abas fechadas |
+| Bloqueio | Motor Rust, regras ABP/uBO suportadas pelo motor, EasyList/EasyPrivacy, filtros CSS, exceções por domínio |
+| Navegação | Pesquisa configurável, zoom, buscar texto, silenciar/fixar/duplicar abas, impressão e PDF, tela cheia |
+| Favoritos | Edição, pastas, busca, importação HTML/JSON, exportação JSON e migração da versão anterior |
+| Downloads | Progresso, pausar/retomar quando o servidor permite, cancelar e escolha do destino |
+| Privacidade | Perfis privados, revogar permissões, limpeza de cookies e armazenamento da página, histórico local opcional |
+| IA | Streaming, Parar, prazo total, conversa limitada, resumir, explicar/traduzir seleção e prévia editável antes do envio |
+| Diagnóstico | Painel RAM/USS/CPU/processos, estados das abas, versão do Chromium e nível das correções |
+| Distribuição | Instaladores, pacotes portáteis, checksums, teste do executável e publicação versionada automatizada |
+
+## Leveza
+
+- A nova aba é um widget nativo e não cria uma página Chromium até você navegar.
+- A sessão restaurada mantém abas de fundo sem renderer até serem selecionadas.
+- Equilibrado: suspender após 60 s e descartar após 300 s, configuráveis.
+- Econômico: tempos de até 30 s / 120 s, sempre respeitando o estado recomendado pelo Chromium.
+- Abas com áudio recente, fixadas ou marcadas “Manter ativa” ficam ativas.
+- O motor de filtros é compartilhado entre perfis; o contador de bloqueios é atualizado em lote.
+- Filtros visuais fazem uma varredura limitada após carregar a página, sem observador DOM permanente.
+- A biblioteca HTTP de IA e o painel são carregados quando você abre o assistente.
+- Não há modelo de IA embutido, feed ou telemetria. O histórico é opcional e limitado a 1.000 páginas.
+- Os dados da sessão são salvos com debounce. RAM/CPU são consultadas apenas com o painel de desempenho aberto.
+- Cache limitado a 64 MiB **não é limite de RAM**. Chromium e Qt continuam determinando grande parte do consumo e do tamanho instalado.
+
+Ainda não há comparação publicada que comprove consumo menor que Chrome. Medir apenas em CI não representa o seu desktop.
+
+## Bloqueador nativo
+
+As releases já incluem EasyList e EasyPrivacy. Menu → Atualizar listas de bloqueio busca novas versões por HTTPS, valida formato/tamanho e registra origem, SHA256 e data no cache. Uma resposta inválida mantém as listas anteriores. A atualização semanal é opcional em Preferências; não há download automático a cada abertura.
+
+Ao executar diretamente do código, use essa ação para carregar as listas completas; até lá, uma lista inicial de domínios já bloqueia algumas redes conhecidas.
+
+O motor implementa filtros de rede e seletores CSS suportados pela versão da biblioteca. Não executamos scriptlets de listas remotas. Não há promessa de bloquear todos os anúncios em vídeo nem de compatibilidade total com todos os filtros do uBlock Origin. Sites podem precisar de uma exceção. As licenças das listas permanecem dos autores; veja [THIRD_PARTY.md](THIRD_PARTY.md).
+
+## IA
+
+1. Abra **IA**, escolha o provedor e cole sua chave.
+2. Modelo e endpoint podem ser alterados; configurações não secretas são lembradas em janelas normais.
+3. Salvar a chave no cofre do sistema é opcional; o padrão é mantê-la somente em memória.
+4. Para resumir uma página ou explicar/traduzir seleção, revise o texto e confirme o destino antes de enviar.
+5. O botão Parar cancela cooperativamente a consulta; um servidor parado pode levar até o timeout de leitura para liberar a conexão.
+
+Compatível com Chat Completions de APIs OpenAI compatíveis, Messages da Anthropic e servidores locais compatíveis. Presets podem ser ajustados conforme os modelos disponíveis na conta. Provedores precisam suportar streaming nesses endpoints.
+
+- Contexto de página: até 24.000 caracteres.
+- Pergunta: até 12.000 caracteres.
+- Histórico enviado: até 12 mensagens e orçamento de aproximadamente 48.000 caracteres (não é uma contagem exata de tokens).
+- Saída solicitada: até 2.048 tokens; resposta de rede limitada a 2 MB.
+- Prazo total verificado durante a leitura: 60 s; conexão/leitura têm timeout de 8 s.
+- APIs remotas exigem HTTPS, sem redirecionar credenciais. HTTP é aceito somente em loopback.
+- A IA não executa ações no navegador. Respostas são texto. Cookies e a chave não são expostos a sites.
+- Assinaturas de chat não incluem necessariamente créditos de API. Os custos são do seu provedor.
+
+## Privacidade
+
+Cada janela privada usa perfil em memória, destruído ao fechar. Sessões, histórico e favoritos não são gravados por ela. Downloads e envios voluntários à IA acontecem fora da proteção do perfil privado. Salvar uma chave no cofre, se escolhido explicitamente, persiste a chave.
+
+Menu → Privacidade deste site permite revogar permissões e solicitar limpeza de cookies, local/session storage, IndexedDB e Cache Storage da página atual. Páginas abertas podem recriar esses dados; operações IndexedDB podem ser bloqueadas por conexões abertas. Há também limpeza global de cookies e cache HTTP do perfil. Isso não representa apagamento completo de todo o armazenamento de todas as origens.
+
+Não há sincronização ou gerenciador de senhas embutido. Não enfraqueça sandbox, TLS ou isolamento do Chromium para economizar recursos.
+
+## Atualizações
+
+Menu → Verificar atualizações consulta a última release oficial e oferece abrir a página de download. A instalação continua sendo uma ação do usuário: o aplicativo não baixa nem executa atualizadores em segundo plano.
+
+O workflow testa código e executável, gera instaladores e pacotes, calcula checksums e publica a versão ainda não existente em Releases. Mudanças posteriores exigem aumentar a versão. A publicação usa permissões temporárias do GitHub Actions e atestação de procedência; não exige colocar tokens pessoais no código.
+
+Dependabot propõe atualizações do motor e das dependências. A tela Sobre mostra a versão Chromium e o nível das correções incluídas. Atualizações do motor precisam passar por testes e redistribuição; não existe garantia de paridade de atualização com Chrome.
+
+## Executar pelo código
+
+Recomendado Python 3.12.
+
+Windows PowerShell:
 
     py -3.12 -m venv .venv
     .venv\Scripts\python -m pip install -e .
     .venv\Scripts\python -m pluma
 
-### Ubuntu 24.04 / Linux
+Ubuntu 24.04:
 
     sudo apt-get update
-    sudo apt-get install libegl1 libopengl0 libgl1 libxkbcommon-x11-0 libnss3 libxtst6 libxkbfile1 libasound2t64 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0
+    sudo apt-get install python3-venv libegl1 libopengl0 libgl1 libxkbcommon-x11-0 libnss3 libxtst6 libxkbfile1 libasound2t64 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0
     python3 -m venv .venv
     .venv/bin/python -m pip install -e .
     .venv/bin/python -m pluma
 
-Execute como usuário comum. Não desligue a sandbox do Chromium. Outras distribuições precisam dos pacotes equivalentes; o wheel Qt exige glibc compatível.
-
-## Usar IA
-
-1. Clique **IA** e escolha o provedor.
-2. Cole sua chave e ajuste o modelo se necessário.
-3. Envie uma pergunta. Não é preciso contratar ou hospedar um backend do Pluma.
-4. Para analisar a página, marque “Incluir texto da página” e confirme o envio.
-
-As cobranças são do provedor da API. Assinatura de chat não implica crédito de API.
-Cada pergunta é independente: o histórico visual não é reenviado ao modelo.
-O Pluma não faz chamadas de IA em segundo plano nem salva a conversa.
-Servidores locais precisam estar instalados separadamente; o Pluma não baixa modelos.
-
-**Segurança:** APIs remotas exigem HTTPS; HTTP só é aceito em loopback. Redirecionamentos de API não são seguidos. Alterar o endpoint limpa a chave da interface. No Linux, salvar chaves requer um serviço Secret Service/KWallet funcional; sem ele, use modo em memória. A chave não entra no perfil web, no JavaScript de sites ou no QSettings.
+Outras distribuições precisam dos pacotes equivalentes e glibc compatível com os wheels Qt. Wayland, codecs proprietários, DRM, passkeys e sites que restringem webviews precisam de validação específica. Não são cobertos pela promessa de suporte a Ubuntu/Windows.
 
 ## Atalhos
 
@@ -61,66 +121,45 @@ Servidores locais precisam estar instalados separadamente; o Pluma não baixa mo
 |---|---|
 | Ctrl+L | Endereço |
 | Ctrl+T / Ctrl+W | Abrir / fechar aba |
-| Ctrl+R | Recarregar |
-| Alt+← / Alt+→ | Voltar / avançar |
-| Ctrl+J | Painel de IA |
+| Ctrl+Shift+T | Reabrir aba |
+| Ctrl+F / Ctrl+G | Buscar / próxima ocorrência |
+| Ctrl++ / Ctrl+- / Ctrl+0 | Zoom |
+| Ctrl+M | Silenciar |
+| Ctrl+P | Imprimir |
+| Ctrl+J | IA |
+| Ctrl+Shift+J | Downloads |
+| Ctrl+H | Histórico |
 | Ctrl+Shift+N | Janela privada |
+| Alt+← / Alt+→ | Voltar / avançar |
+| Esc | Sair de tela cheia |
 
-## Pacotes para Windows e Linux
-
-O workflow **Test and build** testa e gera uma pasta portátil para cada sistema.
-Após executar no GitHub Actions, baixe o artefato do seu sistema, extraia a pasta inteira e abra Pluma.exe (Windows) ou Pluma (Linux).
-
-Para gerar localmente, no próprio sistema de destino:
-
-    python -m pip install -e ".[dev]"
-    python scripts/build.py
-
-Saída: **dist/Pluma/**. Mantenha todos os arquivos juntos. São builds portáteis sem assinatura digital; não há instalador ou atualizador automático nesta versão. Windows deve ser compilado no Windows; Linux no Linux.
-
-## Testes
+## Validação e build
 
     python -m pip install -e ".[dev]"
     python -m pytest -q
     python scripts/smoke.py
+    python scripts/features_smoke.py
+    python scripts/build.py
+    python scripts/packaged_smoke.py
+    python scripts/package.py
 
-No Linux sem monitor, use **xvfb-run -a python scripts/smoke.py**.
-Os testes unitários usam respostas de API simuladas; não consomem créditos.
-O smoke valida interface, abas, perfil privado e renderização do Chromium.
+Linux sem monitor: execute os smokes com **xvfb-run -a**. Build exige internet para obter as listas completas. O empacotamento Windows exige Inno Setup 6; Linux exige dpkg-deb. Compile no sistema de destino. A pasta portátil é **dist/Pluma**; os pacotes ficam em **release**.
 
-## Medir leveza de verdade
+Os testes usam respostas de IA simuladas e páginas locais; não consomem créditos. O teste empacotado abre o executável final e verifica renderização Chromium e perfil privado.
 
-    python scripts/benchmark.py PID --seconds 60
+## Benchmark reproduzível
 
-O script soma RSS do processo principal e filhos. RSS pode contar memória compartilhada mais de uma vez: use a mesma métrica para os dois navegadores.
+    python scripts/benchmark.py PID --seconds 60 --label pluma --output pluma.json
 
-Compare em uma máquina: mesma versão de SO, sites, quantidade de abas, extensões desligadas, cache equivalente e 3 repetições. Meça início, 1/5/20 abas, 5 minutos em repouso e reativação. Registre RAM, CPU, latência de abertura e tamanho instalado. Não compare números de CI com os do seu computador.
+O script mede toda a árvore de processos e registra RSS, USS, CPU, pico e amostras. Repita para Chrome na mesma máquina, com mesmos sites/cache e sem extensões, em cenários de 1, 5 e 20 abas, antes/depois de repouso. Faça ao menos três repetições. RSS pode contar páginas compartilhadas duas vezes; CPU pode passar de 100% em vários núcleos.
 
-## Limitações conhecidas
+Também registre abertura até primeira página utilizável, tamanho instalado e latência ao reativar abas. Não reduza isolamento ou segurança para melhorar números.
 
-- Bloqueio apenas por domínio. Não implementa EasyList, filtros cosméticos, scriptlets, atualização de listas ou bloqueio garantido de anúncios em vídeo.
-- Suspender/descarregar abas depende do estado recomendado pelo Chromium. Use “Manter ativa” em editores, chamadas e formulários importantes.
-- Não inclui sincronização, extensões Chrome, gerenciador de senhas, restauração de sessão, tradução ou integração como navegador padrão.
-- Compatibilidade com DRM, codecs proprietários, passkeys e logins que rejeitam webviews precisa de testes específicos.
-- Navegação privada não significa anonimato; downloads e envios voluntários à IA deixam rastros fora do perfil.
-- Atualizações de segurança do Chromium dependem de atualizar Qt WebEngine e redistribuir o aplicativo. Não há promessa de equivalência à segurança/atualização do Chrome.
-- Sem teste real com chaves pagas e sem medição comparativa publicada nesta versão.
+## Código
 
-## Arquitetura
+app.py: shell e navegação. features.py: sessões e comandos. dialogs.py: painéis nativos.
+blocking.py: motor Rust e listas. ai_panel.py / ai.py: assistente e API.
+storage.py: persistência limitada. instance.py: reutilização de instância.
+updates.py: consulta de releases. scripts/: builds, testes e medição.
 
-**pluma/core.py**: políticas testáveis de URL, bloqueio e ciclo de vida.
-**pluma/app.py**: shell Qt, abas, perfis, permissões, downloads e painel IA.
-**pluma/ai.py**: HTTP limitado, sem acesso a cookies e sem ponte JavaScript.
-**scripts/**: build, smoke e medição de memória.
-
-Referências: [ciclo de vida do Qt WebEngine](https://doc.qt.io/qtforpython-6.10/PySide6/QtWebEngineCore/QWebEnginePage.html), [perfil web](https://doc.qt.io/qtforpython-6/PySide6/QtWebEngineCore/QWebEngineProfile.html), [licenças](THIRD_PARTY.md).
-
-## Próximos passos
-
-1. Ampliar bloqueio com motor de filtros e atualização verificável de listas.
-2. Medir consumo em hardware real e estabelecer orçamento de RAM/CPU.
-3. Validar navegação e acessibilidade em Windows e distribuições Linux.
-4. Assinar binários e implementar atualizações de segurança.
-5. Evoluir histórico, restauração opcional e importação de favoritos.
-
-MIT para o código do Pluma; dependências mantêm suas licenças.
+Código do Pluma: MIT. Dependências e listas mantêm suas licenças.

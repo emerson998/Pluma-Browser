@@ -15,8 +15,8 @@ from PySide6.QtWebEngineCore import (
     QWebEnginePage, QWebEngineProfile, QWebEngineSettings, QWebEngineUrlRequestInterceptor,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from .core import navigation_url, should_block, lifecycle_action, validate_endpoint
-from .ai import PRESETS, ask
+from .core import navigation_url, host_matches, lifecycle_action
+from .features import Features, filter_engine
 
 STYLE = """
 QMainWindow, QDialog, QWidget { background: #111416; color: #e7ecea; font: 13px 'Segoe UI'; }
@@ -36,16 +36,19 @@ QStatusBar { color: #a5b7af; }
 
 
 class Blocker(QWebEngineUrlRequestInterceptor):
-    hit = Signal()
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.allowed = frozenset()
+        self.blocked_count = 0
 
     def interceptRequest(self, info):
-        if should_block(info.requestUrl().toString(), info.firstPartyUrl().toString(), self.allowed):
+        kind = info.resourceType().name.removeprefix('ResourceType').lower()
+        kind = {'mainframe': 'document', 'subframe': 'subdocument',
+                'xhr': 'xmlhttprequest', 'favicon': 'image'}.get(kind, kind)
+        if filter_engine().blocked(info.requestUrl().toString(), info.firstPartyUrl().toString(),
+                                   kind, self.allowed):
             info.block(True)
-            self.hit.emit()
+            self.blocked_count += 1
 
 
 class Page(QWebEnginePage):
@@ -66,6 +69,8 @@ class BrowserTab(QWidget):
         self.window = window
         self.last_active = time.monotonic()
         self.protected = False
+        self.pinned = False
+        self.pending_url = ''
         self.view = None
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -102,12 +107,13 @@ class BrowserTab(QWidget):
         self.layout.addWidget(self.view)
         self.view.titleChanged.connect(lambda title: self.window.tab_title(self, title))
         self.view.urlChanged.connect(lambda _: self.window.sync_toolbar())
+        page.pdfPrintingFinished.connect(lambda path, ok: self.window.statusBar().showMessage('PDF salvo: ' + path if ok else 'Falha ao gerar PDF'))
+        page.printRequested.connect(self.window.print_page)
         self.view.loadFinished.connect(lambda ok: self.window.load_done(self, ok))
         page.newWindowRequested.connect(self.window.new_window)
-        page.fullScreenRequested.connect(lambda request: request.reject())
-        page.featurePermissionRequested.connect(
-            lambda origin, feature: self.window.permission(page, origin, feature)
-        )
+        page.fullScreenRequested.connect(self.window.fullscreen)
+        page.permissionRequested.connect(self.window.permission_request)
+        page.renderProcessTerminated.connect(lambda *_: self.window.statusBar().showMessage('A página parou. Recarregue para continuar.'))
         return self.view
 
     def navigate(self, text):
@@ -116,171 +122,20 @@ class BrowserTab(QWidget):
         except ValueError as exc:
             QMessageBox.warning(self, 'Endereço inválido', str(exc))
             return
+        search = self.window.settings.value('search', 'DuckDuckGo')
+        if url.startswith('https://duckduckgo.com/?q='):
+            url = url.replace('https://duckduckgo.com/?q=', {
+                'Google': 'https://www.google.com/search?q=', 'Bing': 'https://www.bing.com/search?q='
+            }.get(search, 'https://duckduckgo.com/?q='), 1)
+        self.pending_url = ''
         self.ensure_view().setUrl(QUrl(url))
+        self.window.queue_session()
 
     def url(self):
-        return self.view.url().toString() if self.view else ''
+        return self.view.url().toString() if self.view else self.pending_url
 
 
-class Worker(QThread):
-    result = Signal(str)
-    failed = Signal(str)
-
-    def __init__(self, args, parent):
-        super().__init__(parent)
-        self.args = args
-
-    def run(self):
-        try:
-            self.result.emit(ask(**self.args))
-        except ValueError as exc:
-            self.failed.emit(str(exc))
-        except Exception:
-            # Do not leak headers, tokens or provider response bodies.
-            self.failed.emit('Não foi possível obter resposta. Confira conexão, endpoint e formato da API.')
-        finally:
-            self.args.clear()
-
-
-class AIPanel(QWidget):
-    def __init__(self, window):
-        super().__init__()
-        self.window = window
-        self.worker = None
-        self.busy = False
-        box = QVBoxLayout(self)
-        intro = QLabel('Sua IA, sua chave. Chamadas são feitas somente ao enviar uma pergunta.')
-        intro.setWordWrap(True)
-        box.addWidget(intro)
-        form = QFormLayout()
-        self.provider = QComboBox()
-        self.provider.addItems(PRESETS)
-        self.endpoint, self.model, self.key = QLineEdit(), QLineEdit(), QLineEdit()
-        self.key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.key.setPlaceholderText('Chave de API — somente nesta sessão')
-        self.remember = QCheckBox('Salvar chave no cofre do sistema')
-        form.addRow('Provedor', self.provider)
-        form.addRow('Endpoint', self.endpoint)
-        form.addRow('Modelo', self.model)
-        form.addRow('Chave', self.key)
-        box.addLayout(form)
-        box.addWidget(self.remember)
-        row = QHBoxLayout()
-        load = QPushButton('Carregar chave')
-        forget = QPushButton('Apagar chave')
-        row.addWidget(load)
-        row.addWidget(forget)
-        box.addLayout(row)
-        load.clicked.connect(self.load_key)
-        forget.clicked.connect(self.forget_key)
-        self.provider.currentTextChanged.connect(self.preset)
-        self.endpoint.textChanged.connect(self.endpoint_changed)
-        self.preset(self.provider.currentText())
-        self.output = QTextEdit()
-        self.output.setReadOnly(True)
-        self.output.setPlaceholderText('As respostas aparecem aqui. O chat não é salvo em disco.')
-        box.addWidget(self.output, 1)
-        self.prompt = QPlainTextEdit()
-        self.prompt.setPlaceholderText('O que você quer saber?')
-        self.prompt.setMaximumHeight(100)
-        box.addWidget(self.prompt)
-        self.context = QCheckBox('Incluir texto da página (pedir confirmação)')
-        box.addWidget(self.context)
-        self.send = QPushButton('Enviar pergunta')
-        self.send.clicked.connect(self.submit)
-        box.addWidget(self.send)
-        clear = QPushButton('Limpar conversa')
-        clear.clicked.connect(self.output.clear)
-        box.addWidget(clear)
-
-    def endpoint_changed(self):
-        self.key.clear()
-        self.remember.setChecked(False)
-
-    def preset(self, provider):
-        endpoint, model = PRESETS[provider]
-        self.endpoint.setText(endpoint)
-        self.model.setText(model)
-        self.key.clear()
-
-    def vault_id(self):
-        return validate_endpoint(self.endpoint.text())
-
-    def load_key(self):
-        try:
-            import keyring
-            self.key.setText(keyring.get_password('Pluma Browser', self.vault_id()) or '')
-        except Exception:
-            QMessageBox.warning(self, 'Cofre indisponível', 'Use uma chave somente em memória nesta sessão.')
-
-    def forget_key(self):
-        self.key.clear()
-        self.remember.setChecked(False)
-        try:
-            import keyring
-            account = self.vault_id()
-            if keyring.get_password('Pluma Browser', account):
-                keyring.delete_password('Pluma Browser', account)
-        except Exception:
-            QMessageBox.warning(self, 'Cofre indisponível', 'Não foi possível remover a chave do cofre do sistema.')
-
-    def submit(self):
-        if self.busy or not self.prompt.toPlainText().strip():
-            return
-        try:
-            endpoint = validate_endpoint(self.endpoint.text())
-        except ValueError as exc:
-            QMessageBox.warning(self, 'API', str(exc))
-            return
-        args = dict(provider=self.provider.currentText(), endpoint=endpoint,
-                    model=self.model.text().strip(), key=self.key.text(),
-                    prompt=self.prompt.toPlainText(), context='')
-        if self.remember.isChecked():
-            try:
-                import keyring
-                keyring.set_password('Pluma Browser', endpoint, args['key'])
-            except Exception:
-                QMessageBox.warning(self, 'Cofre indisponível', 'A chave permanece somente em memória.')
-        tab = self.window.current()
-        if self.context.isChecked() and tab and tab.view:
-            if QMessageBox.question(self, 'Enviar texto à IA?',
-                'Até 24.000 caracteres do texto visível desta página serão enviados para:\n'
-                + endpoint + '\n\nO conteúdo pode conter dados pessoais. Autoriza este envio?'
-            ) != QMessageBox.StandardButton.Yes:
-                return
-            self.set_busy(True)
-            tab.view.page().toPlainText(lambda text: self.start(args, text[:24000]))
-        else:
-            self.start(args, '')
-
-    def set_busy(self, busy):
-        self.busy = busy
-        self.send.setEnabled(not busy)
-        self.send.setText('Consultando…' if busy else 'Enviar pergunta')
-
-    def start(self, args, context):
-        args['context'] = context
-        self.set_busy(True)
-        self.append_plain('Você: ' + args['prompt'])
-        self.worker = Worker(args, self)
-        self.worker.result.connect(lambda text: self.append_plain('IA: ' + text))
-        self.worker.failed.connect(lambda text: self.append_plain('Erro: ' + text))
-        self.worker.finished.connect(self.worker_done)
-        self.worker.finished.connect(self.worker.deleteLater)
-        self.worker.start()
-
-    def worker_done(self):
-        self.worker = None
-        self.set_busy(False)
-
-    def append_plain(self, text):
-        cursor = self.output.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-        cursor.insertText('\n' + str(text) + '\n\n')
-        self.output.setTextCursor(cursor)
-
-
-class Window(QMainWindow):
+class Window(Features, QMainWindow):
     def __init__(self, private=False):
         super().__init__()
         self.setWindowTitle('Pluma Browser' + (' — Privado' if private else ''))
@@ -290,18 +145,22 @@ class Window(QMainWindow):
         self.ai_panel = None
         self.child_windows = []
         self.settings = QSettings('Pluma', 'Browser')
+        self.init_state()
         # Separate unnamed profile is off-the-record.
         self.profile = QWebEngineProfile(self) if private else QWebEngineProfile('Pluma', self)
         if not private:
             root = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation))
             self.profile.setPersistentStoragePath(str(root / 'profile'))
             self.profile.setCachePath(str(root / 'cache'))
+        self.profile.setPersistentPermissionsPolicy(
+            QWebEngineProfile.PersistentPermissionsPolicy.StoreInMemory if private
+            else QWebEngineProfile.PersistentPermissionsPolicy.StoreOnDisk)
         self.profile.setHttpCacheMaximumSize(64 * 1024 * 1024)
         web_settings = self.profile.settings()
+        web_settings.setAttribute(QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
         for attribute in (
             QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows,
             QWebEngineSettings.WebAttribute.PluginsEnabled,
-            QWebEngineSettings.WebAttribute.FullScreenSupportEnabled,
             QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls,
             QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls,
         ):
@@ -311,7 +170,6 @@ class Window(QMainWindow):
         allowed = self.settings.value('allowed', []) if not private else []
         self.blocker.allowed = frozenset(allowed or [])
         self.profile.setUrlRequestInterceptor(self.blocker)
-        self.blocker.hit.connect(self.count_block)
         self.profile.downloadRequested.connect(self.download)
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
@@ -328,7 +186,8 @@ class Window(QMainWindow):
         toolbar.addAction('+', lambda: self.add_tab())
         self.address = QLineEdit()
         self.address.setPlaceholderText('Pesquisar ou digitar endereço')
-        self.address.returnPressed.connect(lambda: self.current().navigate(self.address.text()))
+        self.address.returnPressed.connect(self.navigate_address)
+        self.address.setAccessibleName('Endereço ou pesquisa')
         toolbar.addWidget(self.address)
         self.shield = toolbar.addAction('Proteção', self.toggle_protection)
         self.keep = toolbar.addAction('Manter ativa', self.toggle_keep)
@@ -341,6 +200,7 @@ class Window(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock)
         self.dock.hide()
         for shortcut, callback in [
+            ('Escape', lambda: self.showNormal()),
             ('Ctrl+T', lambda: self.add_tab()), ('Ctrl+W', lambda: self.close_tab(self.tabs.currentIndex())),
             ('Ctrl+L', self.focus_address), ('Ctrl+R', lambda: self.with_view('reload')),
             ('Alt+Left', lambda: self.with_view('back')), ('Alt+Right', lambda: self.with_view('forward')),
@@ -355,25 +215,36 @@ class Window(QMainWindow):
         self.timer.timeout.connect(self.suspend_tabs)
         self.timer.start()
         self.add_tab()
+        self.init_controls(toolbar)
         self.statusBar().showMessage('Pronto • bloqueio nativo ligado')
 
     def current(self):
         return self.tabs.currentWidget()
 
-    def add_tab(self, url=None):
+    def add_tab(self, url=None, lazy=False):
         tab = BrowserTab(self)
         self.tabs.addTab(tab, 'Nova aba')
         self.tabs.setCurrentWidget(tab)
-        if url:
+        if url and lazy:
+            tab.pending_url = url
+            self.tabs.setTabText(self.tabs.indexOf(tab), QUrl(url).host())
+        elif url:
             tab.navigate(url)
+        self.queue_session()
         return tab
 
     def close_tab(self, index):
         tab = self.tabs.widget(index)
         if tab is None:
             return
+        if tab.pinned and QMessageBox.question(self, 'Aba fixada', 'Fechar esta aba fixada?') != QMessageBox.StandardButton.Yes:
+            return
+        if tab.url():
+            self.closed_tabs.append(self.entry(tab))
+            self.closed_tabs = self.closed_tabs[-20:]
         self.tabs.removeTab(index)
         tab.deleteLater()
+        self.queue_session()
         if not self.tabs.count():
             self.add_tab()
 
@@ -383,7 +254,9 @@ class Window(QMainWindow):
             tab = self.tabs.widget(i)
             if tab == current:
                 tab.last_active = time.monotonic()
-                if tab.view:
+                if tab.pending_url:
+                    tab.navigate(tab.pending_url)
+                elif tab.view:
                     tab.view.page().setLifecycleState(QWebEnginePage.LifecycleState.Active)
             elif getattr(tab, 'was_current', False):
                 tab.last_active = time.monotonic()
@@ -399,8 +272,14 @@ class Window(QMainWindow):
             if page.lifecycleState() == page.LifecycleState.Discarded and not tab.protected:
                 continue
             recommended = page.recommendedState().name.lower()
+            economical = self.settings.value('mode', 'Equilibrado') == 'Econômico'
+            freeze = int(self.settings.value('freeze', 60))
+            discard = max(freeze + 15, int(self.settings.value('discard', 300)))
+            if economical:
+                freeze, discard = min(freeze, 30), min(discard, 120)
             state = lifecycle_action(time.monotonic() - tab.last_active, recommended,
-                                     page.recentlyAudible(), tab.protected)
+                                     page.recentlyAudible(), tab.protected or tab.pinned,
+                                     freeze, discard)
             target = {'active': page.LifecycleState.Active, 'frozen': page.LifecycleState.Frozen,
                       'discarded': page.LifecycleState.Discarded}[state]
             if page.lifecycleState() != target:
@@ -409,22 +288,27 @@ class Window(QMainWindow):
     def tab_title(self, tab, title):
         index = self.tabs.indexOf(tab)
         if index >= 0:
-            self.tabs.setTabText(index, title[:28] or 'Nova aba')
+            self.tabs.setTabText(index, ('• ' if tab.pinned else '') + (title[:28] or 'Nova aba'))
             self.tabs.setTabToolTip(index, title)
 
     def sync_toolbar(self):
         tab = self.current()
         if not tab or not hasattr(self, 'address'):
             return
-        if not self.address.hasFocus():
+        if not self.address.isModified():
             self.address.setText(tab.url())
+            self.address.setModified(False)
         self.keep.setChecked(tab.protected)
         host = QUrl(tab.url()).host()
-        self.shield.setText('Proteção: pausa' if host in self.blocker.allowed else 'Proteção: ligada')
+        self.shield.setText('Proteção: pausa' if host_matches(host, self.blocker.allowed) else 'Proteção: ligada')
         self.back_action.setEnabled(bool(tab.view and tab.view.history().canGoBack()))
         self.forward_action.setEnabled(bool(tab.view and tab.view.history().canGoForward()))
 
     def load_done(self, tab, ok):
+        if ok:
+            self.record_history(tab)
+            self.apply_cosmetics(tab)
+            self.queue_session()
         if tab == self.current():
             self.statusBar().showMessage(
                 f'{self.blocked} requisições bloqueadas' if ok else 'Falha ao carregar — confira endereço e conexão.')
@@ -448,8 +332,8 @@ class Window(QMainWindow):
         if not host:
             return
         domains = set(self.blocker.allowed)
-        if host in domains:
-            domains.remove(host)
+        if host_matches(host, domains):
+            domains = {domain for domain in domains if not host_matches(host, {domain})}
         else:
             domains.add(host)
         self.blocker.allowed = frozenset(domains)
@@ -466,6 +350,7 @@ class Window(QMainWindow):
 
     def toggle_ai(self):
         if self.ai_panel is None:
+            from .ai_panel import AIPanel
             self.ai_panel = AIPanel(self)
             self.dock.setWidget(self.ai_panel)
         self.dock.setVisible(not self.dock.isVisible())
@@ -479,6 +364,8 @@ class Window(QMainWindow):
     def new_private(self):
         window = Window(private=True)
         self.child_windows.append(window)
+        window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        window.destroyed.connect(lambda: self.child_windows.remove(window) if window in self.child_windows else None)
         window.show()
 
     def permission(self, page, origin, feature):
@@ -496,43 +383,59 @@ class Window(QMainWindow):
         item.setDownloadDirectory(str(destination.parent))
         item.setDownloadFileName(destination.name)
         item.stateChanged.connect(lambda _: self.statusBar().showMessage('Download: ' + item.state().name))
+        self.downloads = [download for download in self.downloads if not download.isFinished()][-99:]
+        self.downloads.append(item)
         item.accept()
 
-    def bookmarks(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle('Favoritos')
-        box = QVBoxLayout(dialog)
-        entries = self.settings.value('bookmarks', []) or []
-        for entry in entries:
-            button = QPushButton(entry)
-            button.clicked.connect(lambda checked=False, url=entry: (self.add_tab(url), dialog.accept()))
-            box.addWidget(button)
-        add = QPushButton('Adicionar página atual')
-        add.setEnabled(bool(self.current().url()) and not self.private)
-        def save():
-            url = self.current().url()
-            self.settings.setValue('bookmarks', list(dict.fromkeys(entries + [url]))[-100:])
-            dialog.accept()
-        add.clicked.connect(save)
-        box.addWidget(add)
-        clear = QPushButton('Limpar favoritos')
-        clear.setEnabled(not self.private)
-        clear.clicked.connect(lambda: (self.settings.setValue('bookmarks', []), dialog.accept()))
-        box.addWidget(clear)
-        dialog.exec()
+    def navigate_address(self):
+        text = self.address.text()
+        self.address.setModified(False)
+        self.address.clearFocus()
+        self.current().navigate(text)
+
+    def fullscreen(self, request):
+        request.accept()
+        if request.toggleOn():
+            self.showFullScreen()
+        else:
+            self.showNormal()
+
+    def permission_request(self, permission):
+        allow = QMessageBox.question(self, 'Permissão do site',
+            permission.origin().toString() + ' solicita ' + permission.permissionType().name +
+            '. Permitir?') == QMessageBox.StandardButton.Yes
+        permission.grant() if allow else permission.deny()
 
     def closeEvent(self, event):
-        if self.ai_panel and self.ai_panel.busy:
-            QMessageBox.information(self, 'Consulta em andamento', 'Aguarde a consulta à IA terminar antes de fechar.')
+        self.save_session()
+        busy = bool(self.ai_panel and self.ai_panel.busy) or bool(self.jobs)
+        if busy:
+            self.close_pending = True
+            if self.ai_panel:
+                self.ai_panel.cancel()
+            for job in self.jobs:
+                job.requestInterruption()
+            self.statusBar().showMessage('Encerrando operações…')
             event.ignore()
             return
+        # Tear down private profiles immediately, rather than retaining closed windows.
         import shiboken6
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
             if tab.view:
+                if not self.private:
+                    tab.pending_url = tab.url()
                 shiboken6.delete(tab.view)
                 tab.view = None
         self.timer.stop()
+        self.stats_timer.stop()
+        self.session_timer.stop()
+        if self.ai_panel:
+            self.ai_panel.flush_timer.stop()
+            self.ai_panel.key.clear()
+            self.ai_panel.history.clear()
+        if self.private:
+            shiboken6.delete(self.profile)
         event.accept()
 
 
@@ -542,6 +445,18 @@ def main():
     app.setApplicationName('Pluma Browser')
     app.setOrganizationName('Pluma')
     app.setStyleSheet(STYLE)
+    if '--self-test' in sys.argv:
+        from .selftest import run
+        sys.exit(run(app, sys.argv[sys.argv.index('--self-test') + 1]))
+    from .instance import connect_instance, bind
+    urls = [value for value in sys.argv[1:] if value.startswith(('https://', 'http://'))]
+    server, forwarded = connect_instance(urls, '--private' in sys.argv)
+    if forwarded:
+        return
     window = Window(private='--private' in sys.argv)
+    bind(server, window)
+    for value in sys.argv[1:]:
+        if value.startswith(('https://', 'http://')):
+            window.add_tab(value)
     window.show()
     sys.exit(app.exec())

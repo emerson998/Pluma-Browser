@@ -5,10 +5,18 @@ import subprocess
 import sys
 
 root = Path(__file__).resolve().parents[1]
+# Ship full filter lists with release bundles; startup remains offline.
+sys.path.insert(0, str(root))
+from pluma.blocking import FilterEngine
+filter_directory = root / 'pluma/data/filters'
+FilterEngine(filter_directory).update()
 subprocess.run([
     sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean',
-    '--windowed', '--onedir', '--name', 'Pluma',
-    '--collect-all', 'keyring.backends', str(root / 'run_pluma.py'),
+    '--windowed', '--onedir', '--exclude-module', 'numpy', '--exclude-module', 'PIL', '--name', 'Pluma',
+    '--collect-all', 'keyring.backends',
+    '--collect-all', 'adblock',
+    '--hidden-import', 'PySide6.QtPrintSupport',
+    '--add-data', str(filter_directory) + ':pluma/data/filters', str(root / 'run_pluma.py'),
 ], cwd=root, check=True)
 for name in ('LICENSE', 'THIRD_PARTY.md', 'README.md'):
     shutil.copy2(root / name, root / 'dist' / 'Pluma' / name)

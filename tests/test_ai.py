@@ -55,3 +55,29 @@ def test_response_limit():
         return httpx.Response(200, content=b'x' * 2_000_001)
     with pytest.raises(ValueError, match='2 MB'):
         ask('custom', 'https://api.example.org/v1', 'model', '', 'oi', client_factory=factory(handle))
+
+
+def test_streaming_with_split_unicode_and_bounded_history():
+    text = 'data: {"choices":[{"delta":{"content":"Olá "}}]}\n\ndata: {"choices":[{"delta":{"content":"mundo"}}]}\n\ndata: [DONE]\n\n'
+    def handle(request):
+        body = json.loads(request.content)
+        assert body['stream']
+        assert body['messages'][-2]['content'] == 'anterior'
+        return httpx.Response(200, content=text.encode())
+    tokens = []
+    answer = ask('custom', 'https://api.example.org/v1', 'model', '', 'oi',
+                 history=[{'role': 'user', 'content': 'anterior'}],
+                 on_chunk=tokens.append, client_factory=factory(handle))
+    assert answer == 'Olá mundo'
+    assert ''.join(tokens) == answer
+
+
+def test_cancel_and_deadline():
+    def handle(request):
+        return httpx.Response(200, json={'choices': [{'message': {'content': 'x'}}]})
+    with pytest.raises(ValueError, match='cancelada'):
+        ask('custom', 'https://api.example.org/v1', 'model', '', 'oi',
+            cancelled=lambda: True, client_factory=factory(handle))
+    with pytest.raises(ValueError, match='Prazo'):
+        ask('custom', 'https://api.example.org/v1', 'model', '', 'oi',
+            deadline=0, client_factory=factory(handle))

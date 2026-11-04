@@ -30,14 +30,61 @@ jobs:
       - name: GUI smoke (Linux)
         timeout-minutes: 2
         if: runner.os == 'Linux'
-        run: xvfb-run -a python scripts/smoke.py
+        run: xvfb-run -a python scripts/smoke.py && xvfb-run -a python scripts/features_smoke.py
       - name: GUI smoke (Windows)
         timeout-minutes: 2
         if: runner.os == 'Windows'
         run: python scripts/smoke.py
+      - name: Feature smoke (Windows)
+        if: runner.os == 'Windows'
+        run: python scripts/features_smoke.py
       - run: python scripts/build.py
+      - name: Packaged executable smoke (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python scripts/packaged_smoke.py
+      - name: Packaged executable smoke (Windows)
+        if: runner.os == 'Windows'
+        run: python scripts/packaged_smoke.py
+      - name: Install Windows installer compiler
+        if: runner.os == 'Windows'
+        run: choco install innosetup --no-progress -y
+      - run: python scripts/package.py
       - uses: actions/upload-artifact@v4
         with:
           name: Pluma-${{ runner.os }}-x64
-          path: dist/Pluma/
+          path: release/
           retention-days: 14
+
+  publish:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+      - name: Merge checksums and packages
+        run: |
+          mkdir -p publish
+          find release -type f ! -name SHA256SUMS.txt -exec cp {} publish/ \;
+          cd publish
+          sha256sum * > SHA256SUMS.txt
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: publish/*
+      - name: Publish versioned release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          VERSION=$(find publish -name 'Pluma-*-Linux-x64.deb' -printf '%f' | sed 's/Pluma-//;s/-Linux-x64.deb//')
+          TAG="v$VERSION"
+          if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; increase the package version to publish another."
+          else
+            gh release create "$TAG" publish/* --repo "$REPOSITORY" --target "$GITHUB_SHA" --title "Pluma $TAG" --generate-notes
+          fi

@@ -52,11 +52,11 @@ def validate_endpoint(value: str) -> str:
     return value
 
 
-def lifecycle_action(idle_seconds: float, recommended: str, audible: bool, protected: bool) -> str:
+def lifecycle_action(idle_seconds: float, recommended: str, audible: bool, protected: bool, freeze_after=60, discard_after=300) -> str:
     if audible or protected:
         return 'active'
-    if idle_seconds >= 300 and recommended == 'discarded':
+    if idle_seconds >= discard_after and recommended == 'discarded':
         return 'discarded'
-    if idle_seconds >= 60 and recommended in ('frozen', 'discarded'):
+    if idle_seconds >= freeze_after and recommended in ('frozen', 'discarded'):
         return 'frozen'
     return 'active'

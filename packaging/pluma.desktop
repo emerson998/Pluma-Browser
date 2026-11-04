@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Pluma Browser
+Comment=Minimal Chromium browser
+Exec=/opt/pluma/Pluma %u
+Terminal=false
+Type=Application
+Categories=Network;WebBrowser;
+MimeType=x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true
