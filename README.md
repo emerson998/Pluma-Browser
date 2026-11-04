@@ -34,7 +34,7 @@ Requer Python 3.11+ (recomendado 3.12), Windows x64 ou Linux x64 com ambiente gr
 ### Ubuntu 24.04 / Linux
 
     sudo apt-get update
-    sudo apt-get install libnss3 libxtst6 libxkbfile1 libasound2t64 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0
+    sudo apt-get install libegl1 libopengl0 libgl1 libxkbcommon-x11-0 libnss3 libxtst6 libxkbfile1 libasound2t64 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0
     python3 -m venv .venv
     .venv/bin/python -m pip install -e .
     .venv/bin/python -m pluma
