@@ -73,7 +73,7 @@ jobs:
           find release -type f ! -name SHA256SUMS.txt -exec cp {} publish/ \;
           cd publish
           sha256sum * > SHA256SUMS.txt
-      - uses: actions/attest-build-provenance@v3
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: publish/*
       - name: Publish versioned release
