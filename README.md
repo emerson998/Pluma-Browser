@@ -37,40 +37,6 @@ O instalador registra o aplicativo como opção de navegador. Escolha Pluma nas 
 | Diagnóstico | Painel RAM/USS/CPU/processos, estados das abas, versão do Chromium e nível das correções |
 | Distribuição | Instaladores, pacotes portáteis, checksums, teste do executável e publicação versionada automatizada |
 
-## Proteção específica do YouTube
-
-A partir da 0.3, **Proteção reforçada do YouTube** fica ativa por padrão no menu.
-Além das listas de rede, um código pequeno, incluído no próprio aplicativo:
-
-- Remove campos conhecidos de anúncios de respostas do player, preservando os dados do vídeo.
-- Oculta alguns formatos promocionais e banners conhecidos.
-- Aciona o botão de pular anúncio quando ele está visível e disponível.
-- Usa eventos/observação limitada do player; não mantém uma varredura periódica da página inteira.
-
-As exceções por site do botão Proteção também desativam esse tratamento após recarregar.
-Se houver falha de reprodução, desmarque a opção no menu e recarregue a página.
-Não baixamos código executável de filtros. Os scripts rodam apenas em hosts explícitos
-do YouTube e YouTube NoCookie; não acessam chaves da IA, cookies ou APIs do navegador.
-
-**Não há garantia de bloquear todos os anúncios do YouTube.** Formatos entregues junto
-ao vídeo, alterações do player e testes da plataforma podem escapar. Os testes usam
-payloads e uma página local controlada; não demonstram bloqueio completo no YouTube real.
-
-## Vídeo flutuante
-
-1. Abra um vídeo, por exemplo no YouTube, e inicie a reprodução.
-2. Clique **Vídeo** na barra ou use **Ctrl+Shift+V**.
-3. Arraste a janela pelo título e ajuste o tamanho pelas bordas/cantos.
-4. **Fixar** mantém o quadro por cima de outros aplicativos. Desmarque para uma janela normal.
-5. Os controles permitem pausar/reproduzir, silenciar e voltar/avançar 10 segundos. Os controles nativos do vídeo também ficam habilitados.
-6. **Voltar à aba**, **Esc** ou fechar o quadro devolvem a mesma página à aba original.
-
-A aba de origem mostra um botão para trazer o vídeo de volta. É possível navegar em outras abas ou minimizar o navegador enquanto o quadro continua aberto. Fechar a aba de origem ou o navegador fecha também o quadro.
-
-O recurso reaproveita o mesmo QWebEngineView e a mesma página: não abre outro stream, não troca para uma URL embed e não cria outro renderer. O vídeo flutuante fica protegido da suspensão automática, mesmo sem áudio. As mudanças visuais são reversíveis e não usam observador DOM ou temporizador permanente.
-
-Compatível com elementos HTML5 video visíveis no documento principal. Players em iframe de outra origem, DRM, codecs indisponíveis ou restrições do site podem impedir o modo. A opção “sempre por cima” também depende do gerenciador de janelas/compositor no Linux. O teste de reprodução usa um vídeo VP8 local; não automatiza acesso a contas do YouTube.
-
 ## Leveza
 
 - A nova aba é um widget nativo e não cria uma página Chromium até você navegar.
@@ -97,7 +63,7 @@ O motor implementa filtros de rede e seletores CSS suportados pela versão da bi
 
 ## Vídeo flutuante
 
-Abra um vídeo (YouTube ou qualquer página com `<video>`) e use **Vídeo** na barra, menu → Vídeo flutuante ou **Ctrl+Shift+P**. O vídeo vai para um quadro próprio que fica sempre no topo (📌 alterna), pode ser movido e redimensionado à vontade e lembra posição e tamanho. A aba original é pausada e o quadro continua do mesmo ponto. Com o mouse sobre um vídeo aparece o botão **⧉ Popup** no canto do player; o menu do botão direito também tem **Abrir vídeo em popup**. Em Preferências, *Abrir vídeo em popup ao trocar de aba com vídeo tocando* faz isso sozinho (desligado por padrão). ↩ devolve o vídeo para uma aba no ponto atual. Sem vídeo na aba, o Pluma pede o endereço.
+Abra um vídeo (YouTube ou qualquer página com `<video>`) e use **Vídeo** na barra, menu → Vídeo flutuante ou **Ctrl+Shift+P**. O vídeo vai para um quadro próprio que fica sempre no topo (📌 alterna), pode ser movido e redimensionado à vontade e lembra posição e tamanho. A aba original é pausada, o quadro continua do mesmo ponto e a janela do navegador é minimizada, deixando só o player; ela volta quando o quadro fecha ou o vídeo retorna para a aba. Com o mouse sobre um vídeo aparece o botão **⧉ Popup** no canto do player; o menu do botão direito também tem **Abrir vídeo em popup**. Em Preferências, *Abrir vídeo em popup ao trocar de aba com vídeo tocando* faz isso sozinho (desligado por padrão). ↩ devolve o vídeo para uma aba no ponto atual. Sem vídeo na aba, o Pluma pede o endereço.
 
 No YouTube, os anúncios chegam pelos mesmos servidores do vídeo, então o bloqueio de rede não basta. O Pluma aplica, em todas as abas e embeds do YouTube, um script local que usa a técnica dos filtros de YouTube do uBlock Origin: remove `adPlacements`, `adSlots` e `playerAds` da resposta do player antes de ele ler, e esconde banners e o aviso de bloqueador. Se ainda passar algum anúncio, ele fica mudo, é avançado até o fim e pulado na hora. O script vem no código-fonte; nada é baixado nem executado a partir das listas. Uma exceção do bloqueador para youtube.com desliga o script. O YouTube muda com frequência, por isso ainda não dá para garantir zero anúncios.
 
@@ -165,7 +131,8 @@ Outras distribuições precisam dos pacotes equivalentes e glibc compatível com
 | Ctrl+Shift+T | Reabrir aba |
 | Ctrl+F / Ctrl+G | Buscar / próxima ocorrência |
 | Ctrl++ / Ctrl+- / Ctrl+0 | Zoom |
-| Ctrl+M | Silenciar |\n| Ctrl+Shift+V | Vídeo flutuante |
+| Ctrl+M | Silenciar |
+| Ctrl+Shift+P | Vídeo em popup |
 | Ctrl+P | Imprimir |
 | Ctrl+J | IA |
 | Ctrl+Shift+J | Downloads |
@@ -179,8 +146,7 @@ Outras distribuições precisam dos pacotes equivalentes e glibc compatível com
     python -m pip install -e ".[dev]"
     python -m pytest -q
     python scripts/smoke.py
-    python scripts/features_smoke.py\n    python scripts/video_smoke.py
-    python scripts/youtube_smoke.py
+    python scripts/features_smoke.py
     python scripts/build.py
     python scripts/packaged_smoke.py
     python scripts/package.py
