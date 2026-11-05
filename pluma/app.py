@@ -72,6 +72,9 @@ class BrowserTab(QWidget):
         self.pinned = False
         self.pending_url = ''
         self.view = None
+        self.floating_window = None
+        self.video_request = 0
+        self.video_pending = False
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.home = QWidget()
@@ -94,6 +97,18 @@ class BrowserTab(QWidget):
         box.addWidget(note)
         box.addStretch()
         self.layout.addWidget(self.home)
+        self.floating_placeholder = QWidget(self)
+        floating_box = QVBoxLayout(self.floating_placeholder)
+        floating_box.addStretch()
+        floating_text = QLabel('Este vídeo está em uma janela flutuante.')
+        floating_text.setWordWrap(True)
+        floating_box.addWidget(floating_text)
+        restore_video = QPushButton('Trazer vídeo de volta para esta aba')
+        restore_video.clicked.connect(lambda: self.floating_window.return_to_tab() if self.floating_window else None)
+        floating_box.addWidget(restore_video)
+        floating_box.addStretch()
+        self.layout.addWidget(self.floating_placeholder)
+        self.floating_placeholder.hide()
         if url:
             self.navigate(url)
 
@@ -111,7 +126,7 @@ class BrowserTab(QWidget):
         page.printRequested.connect(self.window.print_page)
         self.view.loadFinished.connect(lambda ok: self.window.load_done(self, ok))
         page.newWindowRequested.connect(self.window.new_window)
-        page.fullScreenRequested.connect(self.window.fullscreen)
+        page.fullScreenRequested.connect(lambda request: self.floating_window.fullscreen(request) if self.floating_window else self.window.fullscreen(request))
         page.permissionRequested.connect(self.window.permission_request)
         page.renderProcessTerminated.connect(lambda *_: self.window.statusBar().showMessage('A página parou. Recarregue para continuar.'))
         return self.view
@@ -127,6 +142,8 @@ class BrowserTab(QWidget):
             url = url.replace('https://duckduckgo.com/?q=', {
                 'Google': 'https://www.google.com/search?q=', 'Bing': 'https://www.bing.com/search?q='
             }.get(search, 'https://duckduckgo.com/?q='), 1)
+        if self.floating_window:
+            self.floating_window.close()
         self.pending_url = ''
         self.ensure_view().setUrl(QUrl(url))
         self.window.queue_session()
@@ -169,6 +186,8 @@ class Window(Features, QMainWindow):
         self.blocker = Blocker(self.profile)
         allowed = self.settings.value('allowed', []) if not private else []
         self.blocker.allowed = frozenset(allowed or [])
+        self.youtube_enabled = self.settings.value('youtube_protection', True, type=bool)
+        self.refresh_youtube_protection()
         self.profile.setUrlRequestInterceptor(self.blocker)
         self.profile.downloadRequested.connect(self.download)
         self.tabs = QTabWidget()
@@ -239,6 +258,9 @@ class Window(Features, QMainWindow):
             return
         if tab.pinned and QMessageBox.question(self, 'Aba fixada', 'Fechar esta aba fixada?') != QMessageBox.StandardButton.Yes:
             return
+        tab.video_request += 1
+        if tab.floating_window:
+            tab.floating_window.close()
         if tab.url():
             self.closed_tabs.append(self.entry(tab))
             self.closed_tabs = self.closed_tabs[-20:]
@@ -269,6 +291,9 @@ class Window(Features, QMainWindow):
             if tab == self.current() or not tab.view:
                 continue
             page = tab.view.page()
+            if tab.floating_window:
+                page.setLifecycleState(QWebEnginePage.LifecycleState.Active)
+                continue
             if page.lifecycleState() == page.LifecycleState.Discarded and not tab.protected:
                 continue
             recommended = page.recommendedState().name.lower()
@@ -290,6 +315,8 @@ class Window(Features, QMainWindow):
         if index >= 0:
             self.tabs.setTabText(index, ('• ' if tab.pinned else '') + (title[:28] or 'Nova aba'))
             self.tabs.setTabToolTip(index, title)
+            if tab.floating_window:
+                tab.floating_window.setWindowTitle(title[:100] + ' — Pluma vídeo')
 
     def sync_toolbar(self):
         tab = self.current()
@@ -306,6 +333,8 @@ class Window(Features, QMainWindow):
 
     def load_done(self, tab, ok):
         if ok:
+            if tab.floating_window:
+                tab.floating_window.close()
             self.record_history(tab)
             self.apply_cosmetics(tab)
             self.queue_session()
@@ -339,6 +368,7 @@ class Window(Features, QMainWindow):
         self.blocker.allowed = frozenset(domains)
         if not self.private:
             self.settings.setValue('allowed', sorted(domains))
+        self.refresh_youtube_protection()
         self.sync_toolbar()
         self.with_view('reload')
 
@@ -422,6 +452,9 @@ class Window(Features, QMainWindow):
         import shiboken6
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
+            tab.video_request += 1
+            if tab.floating_window:
+                tab.floating_window.close()
             if tab.view:
                 if not self.private:
                     tab.pending_url = tab.url()

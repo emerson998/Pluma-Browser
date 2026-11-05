@@ -60,6 +60,7 @@ class Features:
             ('Reabrir aba fechada', self.reopen, 'Ctrl+Shift+T'),
             ('Fixar/desafixar aba', self.pin, None),
             ('Silenciar aba', self.mute, 'Ctrl+M'),
+            ('Vídeo flutuante', self.float_video, 'Ctrl+Shift+V'),
             ('Aumentar zoom', lambda: self.zoom(.1), 'Ctrl++'),
             ('Diminuir zoom', lambda: self.zoom(-.1), 'Ctrl+-'),
             ('Zoom 100%', lambda: self.zoom(reset=True), 'Ctrl+0'),
@@ -81,6 +82,13 @@ class Features:
                 action.setShortcut(QKeySequence(shortcut))
                 self.addAction(action)
             menu.addAction(action)
+        youtube = QAction('Proteção reforçada do YouTube', self)
+        youtube.setCheckable(True)
+        youtube.setChecked(self.youtube_enabled)
+        youtube.toggled.connect(self.toggle_youtube_protection)
+        menu.addAction(youtube)
+        video_action = toolbar.addAction('Vídeo', self.float_video)
+        video_action.setToolTip('Vídeo flutuante ajustável (Ctrl+Shift+V)')
         from PySide6.QtWidgets import QToolButton
         button = QToolButton()
         button.setText('☰')
@@ -165,6 +173,56 @@ class Features:
         menu.addAction('Duplicar', lambda: self.add_tab(self.current().url()))
         menu.addAction('Fechar', lambda: self.close_tab(self.tabs.currentIndex()))
         menu.exec(self.tabs.tabBar().mapToGlobal(position))
+
+    def refresh_youtube_protection(self):
+        from .youtube import install
+        install(self.profile, self.blocker.allowed, self.youtube_enabled)
+
+    def toggle_youtube_protection(self, enabled):
+        self.youtube_enabled = enabled
+        if not self.private:
+            self.settings.setValue('youtube_protection', enabled)
+        self.refresh_youtube_protection()
+        if host_matches(QUrl(self.current().url()).host(), {'youtube.com', 'youtube-nocookie.com'}):
+            self.with_view('reload')
+        self.statusBar().showMessage('Proteção do YouTube atualizada. Recarregue outras abas do YouTube.')
+
+    def float_video(self):
+        tab = self.current()
+        if tab.floating_window:
+            tab.floating_window.showNormal()
+            tab.floating_window.raise_()
+            tab.floating_window.activateWindow()
+            return
+        if tab.video_pending:
+            return
+        if not tab.view:
+            self.statusBar().showMessage('Abra uma página com vídeo e inicie a reprodução primeiro.')
+            return
+        from .floating_video import FOCUS_VIDEO, RESTORE_VIDEO, WORLD, FloatingVideoWindow
+        page = tab.view.page()
+        tab.video_request += 1
+        request = tab.video_request
+        tab.video_pending = True
+        url = tab.url()
+        def detected(found):
+            import shiboken6
+            if not shiboken6.isValid(tab) or not shiboken6.isValid(page):
+                return
+            tab.video_pending = False
+            if request != tab.video_request or tab.url() != url or self.close_pending:
+                if found:
+                    page.runJavaScript(RESTORE_VIDEO, WORLD)
+                return
+            if tab.floating_window:
+                return
+            if found:
+                frame = FloatingVideoWindow(tab)
+                frame.show()
+                frame.raise_()
+            else:
+                self.statusBar().showMessage('Nenhum vídeo visível encontrado. Inicie o vídeo e tente novamente.')
+        page.runJavaScript(FOCUS_VIDEO, WORLD, detected)
 
     def zoom(self, delta=0, reset=False):
         tab = self.current()
@@ -326,6 +384,7 @@ class Features:
                 if value and '/' not in value and ' ' not in value and ':' not in value:
                     hosts.add(value)
             self.blocker.allowed = frozenset(hosts)
+            self.refresh_youtube_protection()
             if not self.private:
                 self.settings.setValue('allowed', sorted(hosts))
             self.sync_toolbar()
@@ -434,6 +493,11 @@ class Features:
         page, url = tab.view.page(), tab.url()
         def received(data):
             import shiboken6
+            if isinstance(data, str):
+                try:
+                    data = json.loads(data)
+                except ValueError:
+                    return
             if not shiboken6.isValid(tab) or not tab.view or tab.url() != url or not isinstance(data, dict):
                 return
             selectors = filter_engine().cosmetic(url, data.get('classes', []), data.get('ids', []), self.blocker.allowed)
@@ -447,4 +511,4 @@ class Features:
             for(const n of [...document.querySelectorAll('[class],[id]')].slice(0,10000)){
                 for(const c of n.classList) if(cs.size<3000)cs.add(c);
                 if(n.id&&ids.size<3000)ids.add(n.id);
-            } return {classes:[...cs],ids:[...ids]};})()""", received)
+            } return JSON.stringify({classes:[...cs],ids:[...ids]});})()""", received)

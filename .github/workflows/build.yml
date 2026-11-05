@@ -30,7 +30,7 @@ jobs:
       - name: GUI smoke (Linux)
         timeout-minutes: 2
         if: runner.os == 'Linux'
-        run: xvfb-run -a python scripts/smoke.py && xvfb-run -a python scripts/features_smoke.py
+        run: xvfb-run -a python scripts/smoke.py && xvfb-run -a python scripts/features_smoke.py && xvfb-run -a python scripts/video_smoke.py && xvfb-run -a python scripts/youtube_smoke.py
       - name: GUI smoke (Windows)
         timeout-minutes: 2
         if: runner.os == 'Windows'
@@ -38,6 +38,14 @@ jobs:
       - name: Feature smoke (Windows)
         if: runner.os == 'Windows'
         run: python scripts/features_smoke.py
+      - name: Floating video playback (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        run: python scripts/video_smoke.py
+      - name: YouTube protection offline fixture (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        run: python scripts/youtube_smoke.py
       - run: python scripts/build.py
       - name: Packaged executable smoke (Linux)
         if: runner.os == 'Linux'

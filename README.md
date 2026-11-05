@@ -1,4 +1,4 @@
-# Pluma Browser 0.2
+# Pluma Browser 0.3
 
 **Menos distração. Mais espaço para navegar.**
 
@@ -35,6 +35,40 @@ O instalador registra o aplicativo como opção de navegador. Escolha Pluma nas 
 | IA | Streaming, Parar, prazo total, conversa limitada, resumir, explicar/traduzir seleção e prévia editável antes do envio |
 | Diagnóstico | Painel RAM/USS/CPU/processos, estados das abas, versão do Chromium e nível das correções |
 | Distribuição | Instaladores, pacotes portáteis, checksums, teste do executável e publicação versionada automatizada |
+
+## Proteção específica do YouTube
+
+A partir da 0.3, **Proteção reforçada do YouTube** fica ativa por padrão no menu.
+Além das listas de rede, um código pequeno, incluído no próprio aplicativo:
+
+- Remove campos conhecidos de anúncios de respostas do player, preservando os dados do vídeo.
+- Oculta alguns formatos promocionais e banners conhecidos.
+- Aciona o botão de pular anúncio quando ele está visível e disponível.
+- Usa eventos/observação limitada do player; não mantém uma varredura periódica da página inteira.
+
+As exceções por site do botão Proteção também desativam esse tratamento após recarregar.
+Se houver falha de reprodução, desmarque a opção no menu e recarregue a página.
+Não baixamos código executável de filtros. Os scripts rodam apenas em hosts explícitos
+do YouTube e YouTube NoCookie; não acessam chaves da IA, cookies ou APIs do navegador.
+
+**Não há garantia de bloquear todos os anúncios do YouTube.** Formatos entregues junto
+ao vídeo, alterações do player e testes da plataforma podem escapar. Os testes usam
+payloads e uma página local controlada; não demonstram bloqueio completo no YouTube real.
+
+## Vídeo flutuante
+
+1. Abra um vídeo, por exemplo no YouTube, e inicie a reprodução.
+2. Clique **Vídeo** na barra ou use **Ctrl+Shift+V**.
+3. Arraste a janela pelo título e ajuste o tamanho pelas bordas/cantos.
+4. **Fixar** mantém o quadro por cima de outros aplicativos. Desmarque para uma janela normal.
+5. Os controles permitem pausar/reproduzir, silenciar e voltar/avançar 10 segundos. Os controles nativos do vídeo também ficam habilitados.
+6. **Voltar à aba**, **Esc** ou fechar o quadro devolvem a mesma página à aba original.
+
+A aba de origem mostra um botão para trazer o vídeo de volta. É possível navegar em outras abas ou minimizar o navegador enquanto o quadro continua aberto. Fechar a aba de origem ou o navegador fecha também o quadro.
+
+O recurso reaproveita o mesmo QWebEngineView e a mesma página: não abre outro stream, não troca para uma URL embed e não cria outro renderer. O vídeo flutuante fica protegido da suspensão automática, mesmo sem áudio. As mudanças visuais são reversíveis e não usam observador DOM ou temporizador permanente.
+
+Compatível com elementos HTML5 video visíveis no documento principal. Players em iframe de outra origem, DRM, codecs indisponíveis ou restrições do site podem impedir o modo. A opção “sempre por cima” também depende do gerenciador de janelas/compositor no Linux. O teste de reprodução usa um vídeo VP8 local; não automatiza acesso a contas do YouTube.
 
 ## Leveza
 
@@ -124,7 +158,7 @@ Outras distribuições precisam dos pacotes equivalentes e glibc compatível com
 | Ctrl+Shift+T | Reabrir aba |
 | Ctrl+F / Ctrl+G | Buscar / próxima ocorrência |
 | Ctrl++ / Ctrl+- / Ctrl+0 | Zoom |
-| Ctrl+M | Silenciar |
+| Ctrl+M | Silenciar |\n| Ctrl+Shift+V | Vídeo flutuante |
 | Ctrl+P | Imprimir |
 | Ctrl+J | IA |
 | Ctrl+Shift+J | Downloads |
@@ -138,7 +172,8 @@ Outras distribuições precisam dos pacotes equivalentes e glibc compatível com
     python -m pip install -e ".[dev]"
     python -m pytest -q
     python scripts/smoke.py
-    python scripts/features_smoke.py
+    python scripts/features_smoke.py\n    python scripts/video_smoke.py
+    python scripts/youtube_smoke.py
     python scripts/build.py
     python scripts/packaged_smoke.py
     python scripts/package.py
