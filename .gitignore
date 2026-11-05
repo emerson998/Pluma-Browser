@@ -9,4 +9,4 @@ dist/
 .env
 
 release/
-pluma/data/
+pluma/data/filters/

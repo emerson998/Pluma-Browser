@@ -18,21 +18,9 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from .core import navigation_url, host_matches, lifecycle_action
 from .features import Features, filter_engine
 
-STYLE = """
-QMainWindow, QDialog, QWidget { background: #111416; color: #e7ecea; font: 13px 'Segoe UI'; }
-QToolBar { border: none; spacing: 6px; padding: 10px; }
-QLineEdit, QPlainTextEdit, QTextEdit, QComboBox { background: #1d2325; border: 1px solid #343d3d; border-radius: 8px; padding: 9px; selection-background-color: #35685b; }
-QPushButton, QToolButton { background: #242d2d; border: none; border-radius: 7px; padding: 8px 12px; }
-QPushButton:hover, QToolButton:hover { background: #354744; }
-QPushButton:disabled { color: #6c7976; }
-QTabWidget::pane { border: 0; }
-QTabBar::tab { background: #111416; color: #99aaa4; padding: 10px 16px; min-width: 90px; max-width: 220px; }
-QTabBar::tab:selected { background: #26332f; color: #a8e8cb; border-top: 2px solid #8bd5b5; }
-QDockWidget::title { padding: 12px; background: #1b2321; }
-QLabel#hero { font-size: 46px; font-weight: 600; color: #b9efd7; }
-QLabel#muted { color: #a5b7af; font-size: 15px; }
-QStatusBar { color: #a5b7af; }
-"""
+from . import theme
+
+STYLE = theme.stylesheet('Escuro')
 
 
 class Blocker(QWebEngineUrlRequestInterceptor):
@@ -52,9 +40,21 @@ class Blocker(QWebEngineUrlRequestInterceptor):
 
 
 class Page(QWebEnginePage):
-    def __init__(self, profile, parent):
+    popupRequested = Signal()
+
+    def __init__(self, profile, parent, popup_button=False):
         super().__init__(profile, parent)
         self.certificateError.connect(lambda error: error.rejectCertificate())
+        self.popup_token = ''
+        if popup_button:
+            import secrets
+            from .video import popup_script
+            self.popup_token = 'pluma-popup:' + secrets.token_hex(16)
+            self.scripts().insert(popup_script(self.popup_token))
+
+    def javaScriptConsoleMessage(self, level, message, line, source):
+        if self.popup_token and message == self.popup_token:
+            self.popupRequested.emit()
 
     def acceptNavigationRequest(self, url, kind, is_main):
         # No local filesystem, javascript navigation or external protocol launch.
@@ -77,25 +77,7 @@ class BrowserTab(QWidget):
         self.video_pending = False
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
-        self.home = QWidget()
-        box = QVBoxLayout(self.home)
-        box.setContentsMargins(80, 60, 80, 60)
-        box.addStretch()
-        title = QLabel('pluma')
-        title.setObjectName('hero')
-        box.addWidget(title)
-        subtitle = QLabel('Menos distração. Mais espaço para navegar.')
-        subtitle.setObjectName('muted')
-        box.addWidget(subtitle)
-        search = QLineEdit()
-        search.setPlaceholderText('Pesquisar ou digitar endereço')
-        search.returnPressed.connect(lambda: self.navigate(search.text()))
-        box.addWidget(search)
-        note = QLabel('Proteção nativa • Abas em repouso • IA quando você precisar')
-        note.setObjectName('muted')
-        note.setWordWrap(True)
-        box.addWidget(note)
-        box.addStretch()
+        self.home = self.build_home()
         self.layout.addWidget(self.home)
         self.floating_placeholder = QWidget(self)
         floating_box = QVBoxLayout(self.floating_placeholder)
@@ -112,14 +94,97 @@ class BrowserTab(QWidget):
         if url:
             self.navigate(url)
 
+    def build_home(self):
+        """New-tab page: the mark, one search field, the facts that matter, saved sites."""
+        from PySide6.QtGui import QFont
+        home = QWidget()
+        home.setObjectName('home')
+        outer = QHBoxLayout(home)
+        outer.setContentsMargins(40, 40, 40, 40)
+        outer.addStretch(1)
+        column = QWidget()
+        column.setObjectName('home')
+        column.setMaximumWidth(680)
+        column.setMinimumWidth(320)
+        box = QVBoxLayout(column)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(0)
+        box.addStretch(3)
+        brand = QHBoxLayout()
+        brand.setSpacing(14)
+        mark = QLabel()
+        mark.setPixmap(theme.icon('feather', theme.tokens()['accent'], 44).pixmap(44, 44))
+        self.home_mark = mark
+        brand.addWidget(mark)
+        title = QLabel('pluma')
+        title.setObjectName('hero')
+        font = QFont(theme.FONT)
+        font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 96)
+        title.setFont(font)
+        brand.addWidget(title)
+        brand.addStretch()
+        box.addLayout(brand)
+        box.addSpacing(6)
+        private = self.window.private
+        subtitle = QLabel('Janela privada: nada desta janela fica salvo ao fechar.' if private
+                          else 'O navegador leve que bloqueia anúncios antes de baixá-los.')
+        subtitle.setObjectName('muted')
+        subtitle.setWordWrap(True)
+        box.addWidget(subtitle)
+        box.addSpacing(28)
+        search = QLineEdit()
+        search.setObjectName('homeSearch')
+        search.setPlaceholderText('Pesquisar ou digitar endereço')
+        search.setAccessibleName('Pesquisar ou digitar endereço')
+        search.returnPressed.connect(lambda: self.navigate(search.text()))
+        box.addWidget(search)
+        box.addSpacing(14)
+        freeze = int(self.window.settings.value('freeze', 60))
+        facts = QLabel(f'Bloqueio nativo EasyList + EasyPrivacy  ·  Abas em repouso após {freeze} s  ·  '
+                       'IA só quando você envia')
+        facts.setObjectName('fact')
+        facts.setWordWrap(True)
+        box.addWidget(facts)
+        saved = [] if private else list(getattr(self.window, 'bookmark_data', []))[:6]
+        if saved:
+            box.addSpacing(36)
+            label = QLabel('FAVORITOS')
+            label.setObjectName('section')
+            box.addWidget(label)
+            box.addSpacing(10)
+            from PySide6.QtWidgets import QGridLayout
+            grid = QGridLayout()
+            grid.setSpacing(10)
+            for i, item in enumerate(saved):
+                host = QUrl(item['url']).host().removeprefix('www.')
+                tile = QPushButton((item.get('title') or host)[:30] + '\n' + host)
+                tile.setObjectName('tile')
+                tile.setCursor(Qt.CursorShape.PointingHandCursor)
+                tile.setToolTip(item['url'])
+                tile.clicked.connect(lambda _, u=item['url']: self.navigate(u))
+                grid.addWidget(tile, i // 3, i % 3)
+            box.addLayout(grid)
+        box.addSpacing(36)
+        keys = QLabel('Ctrl+L  endereço     Ctrl+T  nova aba     Ctrl+J  assistente     Ctrl+Shift+P  vídeo flutuante')
+        keys.setObjectName('kbd')
+        keys.setWordWrap(True)
+        box.addWidget(keys)
+        box.addStretch(4)
+        outer.addWidget(column, 8)
+        outer.addStretch(1)
+        return home
+
     def ensure_view(self):
         if self.view:
             return self.view
         self.home.hide()
         self.view = QWebEngineView(self)
-        page = Page(self.window.profile, self.view)
+        page = Page(self.window.profile, self.view, popup_button=True)
         self.view.setPage(page)
         self.layout.addWidget(self.view)
+        page.popupRequested.connect(lambda: self.window.floating_video(self))
+        self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.view.customContextMenuRequested.connect(lambda pos: self.window.page_menu(self, pos))
         self.view.titleChanged.connect(lambda title: self.window.tab_title(self, title))
         self.view.urlChanged.connect(lambda _: self.window.sync_toolbar())
         page.pdfPrintingFinished.connect(lambda path, ok: self.window.statusBar().showMessage('PDF salvo: ' + path if ok else 'Falha ao gerar PDF'))
@@ -189,31 +254,59 @@ class Window(Features, QMainWindow):
         self.youtube_enabled = self.settings.value('youtube_protection', True, type=bool)
         self.refresh_youtube_protection()
         self.profile.setUrlRequestInterceptor(self.blocker)
+        self.floating = None
+        self.sync_video_blocking()
         self.profile.downloadRequested.connect(self.download)
+        theme.load_fonts()
+        self.icons = []  # (widget or action, icon name), retinted on theme change.
         self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.tabBar().setDrawBase(False)
+        self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self.activate)
         self.setCentralWidget(self.tabs)
+        from PySide6.QtCore import QSize
+        from PySide6.QtWidgets import QToolButton
+        new_tab = QToolButton()
+        new_tab.setToolTip('Nova aba (Ctrl+T)')
+        new_tab.setAccessibleName('Nova aba')
+        new_tab.setIconSize(QSize(16, 16))
+        new_tab.clicked.connect(lambda: self.add_tab())
+        self.icons.append((new_tab, 'plus'))
+        self.tabs.setCornerWidget(new_tab, Qt.Corner.TopRightCorner)
         toolbar = QToolBar('Navegação')
+        toolbar.setObjectName('nav')
         toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(18, 18))
         self.addToolBar(toolbar)
-        self.back_action = toolbar.addAction('←', lambda: self.with_view('back'))
-        self.forward_action = toolbar.addAction('→', lambda: self.with_view('forward'))
-        toolbar.addAction('↻', lambda: self.with_view('reload'))
-        toolbar.addAction('+', lambda: self.add_tab())
+
+        def add(text, callback, name, tip=None):
+            action = toolbar.addAction(text, callback)
+            action.setToolTip(tip or text)
+            self.icons.append((action, name))
+            return action
+        self.back_action = add('Voltar', lambda: self.with_view('back'), 'arrow-left', 'Voltar (Alt+←)')
+        self.forward_action = add('Avançar', lambda: self.with_view('forward'), 'arrow-right', 'Avançar (Alt+→)')
+        add('Recarregar', lambda: self.with_view('reload'), 'rotate-cw', 'Recarregar (Ctrl+R)')
         self.address = QLineEdit()
+        self.address.setObjectName('address')
         self.address.setPlaceholderText('Pesquisar ou digitar endereço')
         self.address.returnPressed.connect(self.navigate_address)
         self.address.setAccessibleName('Endereço ou pesquisa')
+        self.address_icon = self.address.addAction(theme.icon('search'), QLineEdit.ActionPosition.LeadingPosition)
+        self.icons.append((self.address_icon, 'search'))
         toolbar.addWidget(self.address)
-        self.shield = toolbar.addAction('Proteção', self.toggle_protection)
-        self.keep = toolbar.addAction('Manter ativa', self.toggle_keep)
+        self.shield = add('Proteção', self.toggle_protection, 'shield-check')
+        self.keep = add('Manter ativa', self.toggle_keep, 'pin', 'Manter esta aba ativa (não suspender)')
         self.keep.setCheckable(True)
-        toolbar.addAction('IA', self.toggle_ai)
-        toolbar.addAction('Privado', self.new_private)
-        toolbar.addAction('Favoritos', self.bookmarks)
+        add('IA', self.toggle_ai, 'sparkles', 'Assistente de IA (Ctrl+J)')
+        add('Vídeo', lambda: self.floating_video(), 'picture-in-picture-2',
+            'Vídeo flutuante, sem anúncios (Ctrl+Shift+P)')
+        add('Privado', self.new_private, 'venetian-mask', 'Nova janela privada (Ctrl+Shift+N)')
+        add('Favoritos', self.bookmarks, 'star')
         self.dock = QDockWidget('Assistente · IA', self)
         self.dock.setMinimumWidth(350)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock)
@@ -272,6 +365,12 @@ class Window(Features, QMainWindow):
 
     def activate(self, index):
         current = self.current()
+        previous = next((self.tabs.widget(i) for i in range(self.tabs.count())
+                         if getattr(self.tabs.widget(i), 'was_current', False)), None)
+        if (previous not in (None, current) and previous.view and self.floating is None
+                and self.settings.value('pip_auto', False, type=bool)
+                and previous.view.page().recentlyAudible() and not previous.view.page().isAudioMuted()):
+            self.floating_video(previous, auto=True)
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
             if tab == current:
@@ -327,7 +426,13 @@ class Window(Features, QMainWindow):
             self.address.setModified(False)
         self.keep.setChecked(tab.protected)
         host = QUrl(tab.url()).host()
-        self.shield.setText('Proteção: pausa' if host_matches(host, self.blocker.allowed) else 'Proteção: ligada')
+        paused = host_matches(host, self.blocker.allowed)
+        self.shield.setText('Proteção: pausa' if paused else 'Proteção: ligada')
+        self.shield.setToolTip('Bloqueio pausado neste site — clique para ligar' if paused
+                               else 'Bloqueio ligado — clique para pausar neste site')
+        name = 'shield-off' if paused else 'shield-check'
+        self.icons = [(item, name if item is self.shield else icon) for item, icon in self.icons]
+        self.shield.setIcon(theme.icon(name, None if paused else theme.tokens()['accent']))
         self.back_action.setEnabled(bool(tab.view and tab.view.history().canGoBack()))
         self.forward_action.setEnabled(bool(tab.view and tab.view.history().canGoForward()))
 
@@ -370,6 +475,7 @@ class Window(Features, QMainWindow):
             self.settings.setValue('allowed', sorted(domains))
         self.refresh_youtube_protection()
         self.sync_toolbar()
+        self.sync_video_blocking()
         self.with_view('reload')
 
     def toggle_keep(self):
@@ -450,6 +556,11 @@ class Window(Features, QMainWindow):
             return
         # Tear down private profiles immediately, rather than retaining closed windows.
         import shiboken6
+        floating = self.floating
+        if floating and shiboken6.isValid(floating):
+            floating.restore_main = False
+            floating.close()
+            shiboken6.delete(floating)  # Page must die before the profile.
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
             tab.video_request += 1
@@ -474,10 +585,20 @@ class Window(Features, QMainWindow):
 
 def main():
     # Never disable Chromium sandbox / site isolation in production.
+    if sys.platform == 'win32':
+        import ctypes  # Own taskbar identity, so Windows shows Pluma's icon instead of python's.
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('Emerson.PlumaBrowser')
     app = QApplication(sys.argv)
     app.setApplicationName('Pluma Browser')
     app.setOrganizationName('Pluma')
-    app.setStyleSheet(STYLE)
+    app.setDesktopFileName('pluma')
+    app.setWindowIcon(theme.app_icon())
+    from PySide6.QtCore import QLibraryInfo, QLocale, QTranslator
+    translator = QTranslator(app)
+    if translator.load(QLocale(), 'qtbase', '_', QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)):
+        app.installTranslator(translator)  # Save/Cancel/Yes/No in the system language.
+    theme.load_fonts()
+    app.setStyleSheet(theme.stylesheet('Escuro'))
     if '--self-test' in sys.argv:
         from .selftest import run
         sys.exit(run(app, sys.argv[sys.argv.index('--self-test') + 1]))

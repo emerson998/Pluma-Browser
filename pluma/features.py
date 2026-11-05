@@ -56,6 +56,7 @@ class Features:
         commands = [
             ('Preferências', self.preferences, None),
             ('Encontrar na página', self.find, 'Ctrl+F'),
+            ('Vídeo em popup (sem anúncios)', lambda: self.floating_video(), 'Ctrl+Shift+P'),
             ('Próxima ocorrência', lambda: self.find(next_only=True), 'Ctrl+G'),
             ('Reabrir aba fechada', self.reopen, 'Ctrl+Shift+T'),
             ('Fixar/desafixar aba', self.pin, None),
@@ -91,8 +92,12 @@ class Features:
         video_action.setToolTip('Vídeo flutuante ajustável (Ctrl+Shift+V)')
         from PySide6.QtWidgets import QToolButton
         button = QToolButton()
-        button.setText('☰')
+        button.setText('Menu')
+        button.setToolTip('Menu do navegador')
         button.setAccessibleName('Menu do navegador')
+        from PySide6.QtCore import QSize
+        button.setIconSize(QSize(18, 18))
+        self.icons.append((button, 'menu'))
         button.setMenu(menu)
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         toolbar.addWidget(button)
@@ -275,12 +280,23 @@ class Features:
                 self.update_filters()
 
     def apply_theme(self):
-        from .app import STYLE
-        light = STYLE.replace('#111416', '#f5f7f6').replace('#e7ecea', '#182b23').replace(
-            '#1d2325', '#ffffff').replace('#242d2d', '#e1eae5').replace('#99aaa4', '#40574b').replace(
-            '#26332f', '#d4e7dc').replace('#a8e8cb', '#164b34').replace('#b9efd7', '#246548').replace(
-            '#a5b7af', '#496052').replace('#1b2321', '#e1eae5')
-        self.setStyleSheet(light if self.settings.value('theme', 'Escuro') == 'Claro' else STYLE)
+        from . import theme
+        from PySide6.QtWidgets import QApplication
+        theme.apply(self.settings.value('theme', 'Escuro'))
+        windows = [w for w in QApplication.topLevelWidgets() if isinstance(w, Features)] or [self]
+        for window in windows:
+            window.refresh_icons()
+
+    def refresh_icons(self):
+        from . import theme
+        for item, name in self.icons:
+            item.setIcon(theme.icon(name))
+        accent = theme.tokens()['accent']
+        for i in range(self.tabs.count()):
+            mark = getattr(self.tabs.widget(i), 'home_mark', None)
+            if mark is not None:
+                mark.setPixmap(theme.icon('feather', accent, 44).pixmap(44, 44))
+        self.sync_toolbar()
 
     def save_bookmarks(self, records):
         if not self.private:
@@ -388,6 +404,71 @@ class Features:
             if not self.private:
                 self.settings.setValue('allowed', sorted(hosts))
             self.sync_toolbar()
+            self.sync_video_blocking()
+
+    def sync_video_blocking(self):
+        from .video import install_youtube_script
+        install_youtube_script(self.profile, not host_matches('www.youtube.com', self.blocker.allowed))
+
+    def page_menu(self, tab, position):
+        from .video import youtube_id
+        view = tab.view
+        if not view:
+            return
+        menu = view.createStandardContextMenu()
+        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        request = view.lastContextMenuRequest()
+        video = request is not None and request.mediaType() == request.MediaType.MediaTypeVideo
+        if video or youtube_id(tab.url()):
+            action = QAction('Abrir vídeo em popup', menu)
+            action.triggered.connect(lambda: self.floating_video(tab))
+            first = menu.actions()[0] if menu.actions() else None
+            menu.insertAction(first, action)
+            menu.insertSeparator(first)
+        menu.popup(view.mapToGlobal(position))
+
+    def floating_video(self, tab=None, auto=False):
+        from .core import navigation_url
+        from .video import TAKE_VIDEO, is_youtube, youtube_id
+        tab = tab or self.current()
+        url = tab.url() if tab else ''
+
+        def ask():
+            text, ok = QInputDialog.getText(self, 'Vídeo flutuante',
+                'Endereço do vídeo (YouTube ou página com vídeo):',
+                text=url if url.startswith(('http:', 'https:')) else '')
+            if not ok or not text.strip():
+                return
+            try:
+                target = navigation_url(text)
+            except ValueError as exc:
+                QMessageBox.warning(self, 'Endereço inválido', str(exc))
+                return
+            self.open_floating(target, minimize=True)
+
+        def taken(seconds):
+            import shiboken6
+            if not shiboken6.isValid(self):
+                return
+            seconds = seconds if isinstance(seconds, (int, float)) else -1
+            if seconds < 0 and not youtube_id(url):
+                if not auto:
+                    ask()
+            else:
+                # Switching tabs (auto) keeps the browser in view; an explicit popup minimizes it.
+                self.open_floating(url, max(0, seconds), minimize=not auto)
+                self.statusBar().showMessage('Vídeo no quadro flutuante; a aba foi pausada.')
+
+        if tab and tab.view and url.startswith(('http:', 'https:')) and (youtube_id(url) or not is_youtube(url)):
+            tab.view.page().runJavaScript(TAKE_VIDEO, taken)
+        elif not auto:
+            ask()
+
+    def open_floating(self, url, seconds=0, minimize=False):
+        from .video import FloatingVideo
+        if self.floating is None:
+            self.floating = FloatingVideo(self)
+        self.floating.play(url, seconds, minimize)
 
     def run_job(self, task, callback):
         job = Job(task, self)

@@ -15,6 +15,7 @@ OutputBaseFilename=Pluma-{#AppVersion}-Windows-x64-Setup
 Compression=lzma2
 SolidCompression=yes
 UninstallDisplayIcon={app}\Pluma.exe
+SetupIconFile=..\build\icons\pluma.ico
 ChangesAssociations=yes
 [Files]
 Source: "..\dist\Pluma\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

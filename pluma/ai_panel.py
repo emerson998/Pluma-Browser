@@ -1,6 +1,6 @@
 """Lazy native assistant with explicit context preview and bounded conversation."""
 import time
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QComboBox,
     QLineEdit, QPushButton, QCheckBox, QPlainTextEdit, QMessageBox, QDialog, QDialogButtonBox)
 from .ai import PRESETS, ask
@@ -15,11 +15,18 @@ class AIPanel(QWidget):
         self.history = []
         self.pending_tokens = []
         self.answer = ''
+        self.setObjectName('aiPanel')
         box = QVBoxLayout(self)
+        box.setContentsMargins(14, 6, 14, 14)
+        box.setSpacing(10)
         intro = QLabel('Sua IA, sua chave. Conteúdo só é enviado ao clicar em Enviar.')
+        intro.setObjectName('fact')
         intro.setWordWrap(True)
         box.addWidget(intro)
+        box.addWidget(self.heading('CONEXÃO'))
         form = QFormLayout()
+        form.setVerticalSpacing(8)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.provider = QComboBox()
         self.provider.addItems(PRESETS)
         self.endpoint, self.model, self.key = QLineEdit(), QLineEdit(), QLineEdit()
@@ -28,6 +35,8 @@ class AIPanel(QWidget):
         for label, field in [('Provedor', self.provider), ('Endpoint', self.endpoint),
                              ('Modelo', self.model), ('Chave', self.key)]:
             form.addRow(label, field)
+        from .theme import align_form
+        align_form(form)
         box.addLayout(form)
         self.remember = QCheckBox('Salvar chave no cofre do sistema')
         box.addWidget(self.remember)
@@ -37,7 +46,9 @@ class AIPanel(QWidget):
             button.clicked.connect(callback)
             row.addWidget(button)
         box.addLayout(row)
+        box.addWidget(self.heading('CONVERSA'))
         self.output = QPlainTextEdit()
+        self.output.setPlaceholderText('As respostas aparecem aqui, em tempo real.')
         self.output.setReadOnly(True)
         self.output.setMaximumBlockCount(1500)
         box.addWidget(self.output, 1)
@@ -46,8 +57,10 @@ class AIPanel(QWidget):
                               ('Explicar seleção', 'Explique este trecho de forma simples.'),
                               ('Traduzir seleção', 'Traduza este trecho para português brasileiro.')]:
             button = QPushButton(title)
+            button.setObjectName('chip')
             button.clicked.connect(lambda _, t=title, p=prompt: self.quick(t, p))
             actions.addWidget(button)
+        actions.addStretch()
         box.addLayout(actions)
         self.prompt = QPlainTextEdit()
         self.prompt.setPlaceholderText('Sua pergunta…')
@@ -60,15 +73,17 @@ class AIPanel(QWidget):
         box.addWidget(self.with_history)
         row = QHBoxLayout()
         self.send, self.stop = QPushButton('Enviar'), QPushButton('Parar')
+        self.send.setObjectName('primary')
         self.send.clicked.connect(self.submit)
         self.stop.clicked.connect(self.cancel)
         self.stop.setEnabled(False)
-        row.addWidget(self.send)
-        row.addWidget(self.stop)
-        box.addLayout(row)
         clear = QPushButton('Limpar conversa')
         clear.clicked.connect(self.clear)
-        box.addWidget(clear)
+        row.addWidget(clear)
+        row.addStretch()
+        row.addWidget(self.stop)
+        row.addWidget(self.send)
+        box.addLayout(row)
         self.provider.currentTextChanged.connect(self.preset)
         self.endpoint.textChanged.connect(lambda: (self.key.clear(), self.remember.setChecked(False)))
         saved_provider = window.settings.value('ai_provider', list(PRESETS)[0])
@@ -79,6 +94,12 @@ class AIPanel(QWidget):
         self.flush_timer = QTimer(self)
         self.flush_timer.setInterval(60)
         self.flush_timer.timeout.connect(self.flush)
+
+    @staticmethod
+    def heading(text):
+        label = QLabel(text)
+        label.setObjectName('section')
+        return label
 
     def preset(self, provider):
         endpoint, model = PRESETS[provider]

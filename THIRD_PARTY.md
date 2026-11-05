@@ -32,3 +32,12 @@ The starter host list is maintained in Pluma's source and has no external list d
 - psutil: BSD-3-Clause. https://github.com/giampaolo/psutil
 - packaging: Apache-2.0/BSD-2-Clause. https://github.com/pypa/packaging
 - Inno Setup: build tool with its own license. https://jrsoftware.org/isinfo.php
+
+## Interface (0.3)
+
+- Host Grotesk: SIL Open Font License 1.1. https://github.com/google/fonts/tree/main/ofl/hostgrotesk
+  Bundled unmodified in `pluma/data/fonts` with `OFL-HostGrotesk.txt`.
+- JetBrains Mono: SIL Open Font License 1.1. https://github.com/JetBrains/JetBrainsMono
+  Bundled unmodified in `pluma/data/fonts` with `OFL-JetBrainsMono.txt`.
+- Lucide icons (lucide-static 0.460.0): ISC. https://lucide.dev
+  A subset of the SVG files is bundled in `pluma/data/icons` with its `LICENSE`.

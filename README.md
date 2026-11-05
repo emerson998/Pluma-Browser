@@ -28,6 +28,7 @@ O instalador registra o aplicativo como opção de navegador. Escolha Pluma nas 
 | Economia | Equilibrado/Econômico; suspensão ajustável; abas fixadas e com áudio preservadas; painéis sob demanda |
 | Sessão | Gravação atômica; recuperação após reiniciar/falhar; restauração sem carregar todas as abas; reabrir abas fechadas |
 | Bloqueio | Motor Rust, regras ABP/uBO suportadas pelo motor, EasyList/EasyPrivacy, filtros CSS, exceções por domínio |
+| Vídeo | Popup pelo botão ⧉ sobre o vídeo, menu, Ctrl+Shift+P ou ao trocar de aba; quadro sempre no topo e redimensionável (Ctrl+Shift+P), continua do ponto da aba; YouTube sem anúncios |
 | Navegação | Pesquisa configurável, zoom, buscar texto, silenciar/fixar/duplicar abas, impressão e PDF, tela cheia |
 | Favoritos | Edição, pastas, busca, importação HTML/JSON, exportação JSON e migração da versão anterior |
 | Downloads | Progresso, pausar/retomar quando o servidor permite, cancelar e escolha do destino |
@@ -93,6 +94,12 @@ As releases já incluem EasyList e EasyPrivacy. Menu → Atualizar listas de blo
 Ao executar diretamente do código, use essa ação para carregar as listas completas; até lá, uma lista inicial de domínios já bloqueia algumas redes conhecidas.
 
 O motor implementa filtros de rede e seletores CSS suportados pela versão da biblioteca. Não executamos scriptlets de listas remotas. Não há promessa de bloquear todos os anúncios em vídeo nem de compatibilidade total com todos os filtros do uBlock Origin. Sites podem precisar de uma exceção. As licenças das listas permanecem dos autores; veja [THIRD_PARTY.md](THIRD_PARTY.md).
+
+## Vídeo flutuante
+
+Abra um vídeo (YouTube ou qualquer página com `<video>`) e use **Vídeo** na barra, menu → Vídeo flutuante ou **Ctrl+Shift+P**. O vídeo vai para um quadro próprio que fica sempre no topo (📌 alterna), pode ser movido e redimensionado à vontade e lembra posição e tamanho. A aba original é pausada e o quadro continua do mesmo ponto. Com o mouse sobre um vídeo aparece o botão **⧉ Popup** no canto do player; o menu do botão direito também tem **Abrir vídeo em popup**. Em Preferências, *Abrir vídeo em popup ao trocar de aba com vídeo tocando* faz isso sozinho (desligado por padrão). ↩ devolve o vídeo para uma aba no ponto atual. Sem vídeo na aba, o Pluma pede o endereço.
+
+No YouTube, os anúncios chegam pelos mesmos servidores do vídeo, então o bloqueio de rede não basta. O Pluma aplica, em todas as abas e embeds do YouTube, um script local que usa a técnica dos filtros de YouTube do uBlock Origin: remove `adPlacements`, `adSlots` e `playerAds` da resposta do player antes de ele ler, e esconde banners e o aviso de bloqueador. Se ainda passar algum anúncio, ele fica mudo, é avançado até o fim e pulado na hora. O script vem no código-fonte; nada é baixado nem executado a partir das listas. Uma exceção do bloqueador para youtube.com desliga o script. O YouTube muda com frequência, por isso ainda não dá para garantir zero anúncios.
 
 ## IA
 

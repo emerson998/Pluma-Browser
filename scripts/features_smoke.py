@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 temp = tempfile.TemporaryDirectory()
 os.environ['XDG_DATA_HOME'] = temp.name
 os.environ['XDG_CACHE_HOME'] = temp.name
-from PySide6.QtCore import QSettings, QTimer, QEvent, QCoreApplication
+from PySide6.QtCore import QSettings, QTimer, QEvent, QCoreApplication, Qt
 from PySide6.QtWidgets import QApplication
 QSettings.setDefaultFormat(QSettings.Format.IniFormat)
 QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, temp.name)
@@ -33,11 +33,27 @@ try:
     settings = SettingsDialog(window)
     assert settings.values()['freeze'] >= 15
     assert settings.values()['discard'] > settings.values()['freeze']
+    assert settings.values()['pip_auto'] is False, 'Automatic popup must be opt-in'
     favorites = BookmarksDialog(window)
     favorites.append({'url': 'https://example.org', 'title': 'Example', 'folder': 'Work'})
     favorites.save()
     assert window.bookmark_data[0]['folder'] == 'Work'
     DownloadsDialog(window.downloads, window).close()
+    from pluma.video import SCRIPT_NAME
+    assert window.profile.scripts().find(SCRIPT_NAME), 'YouTube ad script must be installed'
+    window.blocker.allowed = frozenset({'youtube.com'})
+    window.sync_video_blocking()
+    assert not window.profile.scripts().find(SCRIPT_NAME), 'Exception must disable the ad script'
+    window.blocker.allowed = frozenset()
+    window.sync_video_blocking()
+    window.open_floating('https://www.youtube.com/watch?v=dQw4w9WgXcQ', 42)
+    floating = window.floating
+    assert floating.isVisible() and floating.url.endswith('&t=42s')
+    assert floating.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+    floating.top.setChecked(False)
+    assert not floating.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+    floating.close()
+    assert window.floating is None
     window.toggle_ai()
     assert not window.ai_panel.flush_timer.isActive(), 'Hidden/idle AI must not poll'
     window.new_private()

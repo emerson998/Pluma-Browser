@@ -2,7 +2,7 @@
 import json
 from html.parser import HTMLParser
 from urllib.parse import urlsplit
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QUrl, Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QComboBox, QSpinBox,
     QCheckBox, QDialogButtonBox, QLabel, QPushButton, QTableWidget, QTableWidgetItem,
@@ -15,9 +15,13 @@ class SettingsDialog(QDialog):
     def __init__(self, window):
         super().__init__(window)
         self.setWindowTitle('Preferências')
-        self.resize(480, 420)
+        self.resize(520, 460)
         box = QVBoxLayout(self)
+        box.setContentsMargins(20, 20, 20, 16)
+        box.setSpacing(10)
         form = QFormLayout()
+        form.setVerticalSpacing(10)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.mode = QComboBox()
         self.mode.addItems(['Equilibrado', 'Econômico'])
         self.mode.setCurrentText(window.settings.value('mode', 'Equilibrado'))
@@ -35,6 +39,8 @@ class SettingsDialog(QDialog):
         self.auto.setChecked(window.settings.value('filter_auto', False, type=bool))
         self.history = QCheckBox('Guardar histórico local (até 1.000 páginas)')
         self.history.setChecked(window.settings.value('history_enabled', False, type=bool))
+        self.pip_auto = QCheckBox('Abrir vídeo em popup ao trocar de aba com vídeo tocando')
+        self.pip_auto.setChecked(window.settings.value('pip_auto', False, type=bool))
         self.theme = QComboBox()
         self.theme.addItems(['Escuro', 'Claro'])
         self.theme.setCurrentText(window.settings.value('theme', 'Escuro'))
@@ -43,12 +49,16 @@ class SettingsDialog(QDialog):
         form.addRow('Descartar após (segundos)', self.discard)
         form.addRow('Pesquisa', self.search)
         form.addRow('Tema', self.theme)
+        from .theme import align_form
+        align_form(form)
         box.addLayout(form)
-        for checkbox in (self.restore, self.auto, self.history):
+        for checkbox in (self.restore, self.auto, self.history, self.pip_auto):
             box.addWidget(checkbox)
         note = QLabel('Listas são baixadas de easylist.to. Abas com áudio, fixadas ou marcadas como ativas são preservadas.')
+        note.setObjectName('fact')
         note.setWordWrap(True)
         box.addWidget(note)
+        box.addStretch()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -59,7 +69,7 @@ class SettingsDialog(QDialog):
                 'discard': max(self.freeze.value() + 15, self.discard.value()),
                 'restore': self.restore.isChecked(), 'search': self.search.currentText(),
                 'filter_auto': self.auto.isChecked(), 'history_enabled': self.history.isChecked(),
-                'theme': self.theme.currentText()}
+                'theme': self.theme.currentText(), 'pip_auto': self.pip_auto.isChecked()}
 
 
 class BookmarkParser(HTMLParser):
@@ -89,12 +99,16 @@ class BookmarksDialog(QDialog):
         self.setWindowTitle('Favoritos')
         self.resize(760, 440)
         box = QVBoxLayout(self)
+        box.setContentsMargins(16, 16, 16, 16)
+        box.setSpacing(10)
         self.search = QLineEdit()
         self.search.setPlaceholderText('Filtrar favoritos')
         self.search.textChanged.connect(self.filter)
         box.addWidget(self.search)
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(['Título', 'Endereço', 'Pasta'])
+        self.table.verticalHeader().hide()
+        self.table.setShowGrid(False)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.cellDoubleClicked.connect(self.open)
         box.addWidget(self.table)
@@ -105,6 +119,9 @@ class BookmarksDialog(QDialog):
             button = QPushButton(label)
             button.clicked.connect(callback)
             button.setEnabled(not window.private or label == 'Exportar')
+            if label == 'Salvar':
+                row.addStretch()
+                button.setObjectName('primary')
             row.addWidget(button)
         box.addLayout(row)
         for item in window.bookmark_data:
@@ -184,7 +201,10 @@ class DownloadsDialog(QDialog):
         self.resize(680, 360)
         self.manager = manager
         self.box = QVBoxLayout(self)
+        self.box.setContentsMargins(20, 20, 20, 20)
+        self.box.setSpacing(10)
         self.empty = QLabel('Nenhum download nesta janela.')
+        self.empty.setObjectName('muted')
         self.box.addWidget(self.empty)
         self.rows = {}
         self.refresh()

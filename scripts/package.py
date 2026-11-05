@@ -34,6 +34,9 @@ else:
     applications = deb / 'usr/share/applications'
     applications.mkdir(parents=True)
     shutil.copy2(root / 'packaging/pluma.desktop', applications)
+    icons = deb / 'usr/share/icons/hicolor/256x256/apps'
+    icons.mkdir(parents=True)
+    shutil.copy2(root / 'build/icons/pluma.png', icons / 'pluma.png')
     subprocess.run(['dpkg-deb', '--root-owner-group', '--build', str(deb),
                     str(release / (base + '.deb'))], check=True)
 files = [p for p in release.iterdir() if p.is_file() and p.name != 'SHA256SUMS.txt']
